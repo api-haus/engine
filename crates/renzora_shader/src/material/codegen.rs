@@ -947,11 +947,17 @@ impl<'a> Ctx<'a> {
 
                 let w = self.next_var("tri_w");
                 let v = self.next_var("tri");
+                // `var`, not two `let`s: WGSL forbids redeclaring a name in
+                // the same scope, so the normalize-by-sum step can't shadow
+                // the raw weights.
                 self.emit(format!(
-                    "    let {w} = pow(abs(in.world_normal), vec3<f32>({sharpness}));"
+                    "    var {w} = pow(abs(in.world_normal), vec3<f32>({sharpness}));"
                 ));
-                self.emit(format!("    let {w} = {w} / ({w}.x + {w}.y + {w}.z);"));
-                let p = format!("in.world_position.xyz * {scale}");
+                self.emit(format!("    {w} = {w} / ({w}.x + {w}.y + {w}.z);"));
+                // Parenthesized: `{p}.yz` on the bare expression would bind
+                // the swizzle to the last operand (`f32(2.0).yz`), not the
+                // product.
+                let p = format!("(in.world_position.xyz * {scale})");
                 self.emit(format!("    let {v} = textureSample({tex_name}, texture_sampler, {p}.yz) * {w}.x + textureSample({tex_name}, texture_sampler, {p}.xz) * {w}.y + textureSample({tex_name}, texture_sampler, {p}.xy) * {w}.z;"));
                 self.set_out(id, "color", v.clone());
                 self.set_out(id, "rgb", format!("{v}.rgb"));
