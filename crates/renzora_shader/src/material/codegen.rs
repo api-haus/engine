@@ -163,6 +163,7 @@ struct Ctx<'a> {
     /// look up an already-allocated slot in O(1) when the same parameter
     /// name appears on multiple nodes.
     parameter_slots: HashMap<String, usize>,
+    warnings: Vec<String>,
 }
 
 impl<'a> Ctx<'a> {
@@ -211,6 +212,7 @@ impl<'a> Ctx<'a> {
             uses_volume_0: false,
             parameters: Vec::new(),
             parameter_slots: HashMap::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -229,6 +231,15 @@ impl<'a> Ctx<'a> {
             // Once we hit the cap, every subsequent unique name aliases the
             // last slot. We still record the parameter so tooling can list
             // it, but the actual reads will collide.
+            self.warnings.push(format!(
+                "parameter '{name}' exceeds the {MAX_PARAMETER_SLOTS}-slot parameter buffer; \
+                 it aliases slot {} and will read as '{}'. Split the material or reuse names.",
+                MAX_PARAMETER_SLOTS - 1,
+                self.parameters
+                    .last()
+                    .map(|p| p.name.as_str())
+                    .unwrap_or("?"),
+            ));
             return MAX_PARAMETER_SLOTS - 1;
         }
         self.parameters.push(MaterialParam {
@@ -316,7 +327,13 @@ impl<'a> Ctx<'a> {
         if let Some(def) = nodes::node_def(&node.node_type) {
             let pins = (def.pins)();
             if let Some(pin) = pins.iter().find(|p| p.name == pin_name) {
-                return pin.default_value.to_wgsl();
+                let expr = pin.default_value.to_wgsl();
+                // A pin with no default falls back to a plain `0.0`, so a Vec3 pin gets a float unless we widen it.
+                let vt = pin.default_value.pin_type();
+                if vt != pin.pin_type {
+                    return graph::PinType::cast_expr(vt, pin.pin_type, &expr);
+                }
+                return expr;
             }
         }
 
@@ -553,7 +570,7 @@ impl<'a> Ctx<'a> {
                 self.set_out(id, "position", "view.world_position.xyz".into());
             }
             "input/object_position" => {
-                // mesh_functions provides mesh[in.instance_index]
+                // Column 3 of the model matrix is the object's world-space translation.
                 self.set_out(
                     id,
                     "position",
@@ -937,11 +954,13 @@ impl<'a> Ctx<'a> {
 
                 let w = self.next_var("tri_w");
                 let v = self.next_var("tri");
+                // `var`, not `let` — WGSL has no shadowing, so the next line has to assign, not redeclare.
                 self.emit(format!(
-                    "    let {w} = pow(abs(in.world_normal), vec3<f32>({sharpness}));"
+                    "    var {w} = pow(abs(in.world_normal), vec3<f32>({sharpness}));"
                 ));
-                self.emit(format!("    let {w} = {w} / ({w}.x + {w}.y + {w}.z);"));
-                let p = format!("in.world_position.xyz * {scale}");
+                self.emit(format!("    {w} = {w} / ({w}.x + {w}.y + {w}.z);"));
+                // Brackets, or `.yz` below attaches to the last operand instead of the whole product.
+                let p = format!("(in.world_position.xyz * {scale})");
                 self.emit(format!("    let {v} = textureSample({tex_name}, texture_sampler, {p}.yz) * {w}.x + textureSample({tex_name}, texture_sampler, {p}.xz) * {w}.y + textureSample({tex_name}, texture_sampler, {p}.xy) * {w}.z;"));
                 self.set_out(id, "color", v.clone());
                 self.set_out(id, "rgb", format!("{v}.rgb"));
@@ -2389,6 +2408,10 @@ pub fn compile_with_functions(
     // Resolve each output pin's input (triggers recursive codegen)
     let mut resolved: HashMap<String, String> = HashMap::new();
     for pin_name in &output_pins {
+        // `vertex_offset` is built by the vertex pass below; walking it here would copy its body into the fragment shader too.
+        if graph.domain == MaterialDomain::Vegetation && pin_name == "vertex_offset" {
+            continue;
+        }
         let expr = ctx.input(&output_node, pin_name);
         resolved.insert(pin_name.clone(), expr);
     }
@@ -2403,8 +2426,12 @@ pub fn compile_with_functions(
     };
 
     let vertex_shader = if graph.domain == MaterialDomain::Vegetation {
-        if resolved.contains_key("vertex_offset") {
-            Some(build_vegetation_vertex_shader(&ctx, &resolved))
+        if output_pins.iter().any(|p| p == "vertex_offset") {
+            let (shader, extra_params, vertex_warnings) =
+                build_vegetation_vertex_shader(graph, functions, &ctx.parameters);
+            ctx.parameters.extend(extra_params);
+            ctx.warnings.extend(vertex_warnings);
+            Some(shader)
         } else {
             None
         }
@@ -2418,7 +2445,7 @@ pub fn compile_with_functions(
         texture_bindings: ctx.texture_bindings,
         domain: graph.domain,
         errors,
-        warnings: Vec::new(),
+        warnings: ctx.warnings,
         requires_transmission,
         parameters: ctx.parameters,
     }
@@ -2882,6 +2909,7 @@ fn emit_ext_shader_header(ctx: &Ctx, shader: &mut String) {
     shader.push_str("#import bevy_pbr::forward_io::{VertexOutput, FragmentOutput}\n");
     shader.push_str("#import bevy_pbr::mesh_view_bindings::{view, globals}\n");
 
+    shader.push_str("#import bevy_pbr::mesh_functions\n");
     if ctx.uses_scene_depth || ctx.uses_scene_normal || ctx.uses_motion_vector {
         shader.push_str("#import bevy_pbr::prepass_utils\n");
     }
@@ -3166,16 +3194,57 @@ fn build_unlit_shader(ctx: &Ctx, resolved: &HashMap<String, String>) -> String {
     shader
 }
 
-fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>) -> String {
-    let vertex_offset = resolved
-        .get("vertex_offset")
-        .cloned()
-        .unwrap_or("vec3<f32>(0.0, 0.0, 0.0)".into());
+/// Every node writes code for the fragment stage, where `in` is a
+/// `VertexOutput`. In `fn vertex` it is a `Vertex` instead, with different
+/// fields, so those reads are swapped for the locals the vertex shader has
+/// already worked out by that point.
+fn vertex_stage_substitute(line: &str) -> String {
+    line.replace("in.world_position", "world_pos")
+        .replace("in.world_normal", "mat_world_normal")
+        // `in.position` is the pixel's screen coord in a fragment shader and the vertex in this one. Closest we have.
+        .replace("in.position", "vec4<f32>(in.position, 1.0)")
+}
+
+/// The vegetation vertex stage, where wind moves the vertices.
+///
+/// The displacement subgraph gets its own walk rather than reusing the
+/// fragment pass's, because that pass returns a variable name and the
+/// variable it names lives in `fn fragment`.
+///
+/// Two things it cannot do: sample a texture (no derivatives in a vertex
+/// shader), and read a fragment-only input exactly — see
+/// [`vertex_stage_substitute`]. Both come out as shader errors, not silence.
+fn build_vegetation_vertex_shader(
+    graph: &MaterialGraph,
+    functions: Option<&FunctionRegistry>,
+    fragment_parameters: &[MaterialParam],
+) -> (String, Vec<MaterialParam>, Vec<String>) {
+    let output_node = graph.output_node().unwrap();
+
+    // Start from the fragment pass's parameters — both stages read one buffer, so a name must land on the same slot in both.
+    let mut vctx = Ctx::new_with_functions(graph, functions);
+    vctx.parameters = fragment_parameters.to_vec();
+    vctx.parameter_slots = fragment_parameters
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.name.clone(), i))
+        .collect();
+    let seeded_params = vctx.parameters.len();
+    let vertex_offset = vctx.input(output_node, "vertex_offset");
+    let vertex_offset = vertex_stage_substitute(&vertex_offset);
 
     let mut shader = String::new();
     shader.push_str("#import bevy_pbr::mesh_functions\n");
     shader.push_str("#import bevy_pbr::forward_io::{Vertex, VertexOutput}\n");
-    shader.push_str("#import bevy_pbr::mesh_view_bindings::globals\n\n");
+    shader.push_str("#import bevy_pbr::mesh_view_bindings::{view, globals}\n\n");
+
+    // Same buffer the fragment stage reads; one bind group covers both stages.
+    if !vctx.parameters.is_empty() {
+        shader.push_str("struct SurfaceGraphParams { slots: array<vec4<f32>, 32>, }\n");
+        shader.push_str("@group(3) @binding(118) var<uniform> material_params: SurfaceGraphParams;\n");
+    }
+    shader.push_str(&noise_helpers(&vctx));
+    emit_module_prelude(&vctx, &mut shader);
 
     shader.push_str("@vertex\n");
     shader.push_str("fn vertex(in: Vertex) -> VertexOutput {\n");
@@ -3184,6 +3253,15 @@ fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>
     shader.push_str("        mesh_functions::get_world_from_local(in.instance_index),\n");
     shader.push_str("        vec4<f32>(in.position, 1.0)\n");
     shader.push_str("    );\n");
+    shader.push_str("    let mat_world_normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);\n");
+    // Same aliases the fragment stage gets, so a mesh without UVs or vertex colours still compiles.
+    shader.push_str(&fragment_input_aliases());
+
+    // Displacement subgraph body — vertex-stage locals substituted.
+    for line in &vctx.lines {
+        shader.push_str(&vertex_stage_substitute(line));
+        shader.push('\n');
+    }
 
     // Wind vertex displacement — the resolved expression references globals.time
     // which is available since we imported Globals
@@ -3192,8 +3270,9 @@ fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>
     ));
 
     shader.push_str("    out.world_position = world_pos;\n");
-    shader.push_str("    out.position = mesh_functions::mesh_position_world_to_clip(world_pos);\n");
-    shader.push_str("    out.world_normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);\n");
+    // Written out by hand — Bevy 0.19 dropped `mesh_position_world_to_clip`.
+    shader.push_str("    out.position = view.clip_from_world * world_pos;\n");
+    shader.push_str("    out.world_normal = mat_world_normal;\n");
     // Both `Vertex.uv` and `VertexOutput.uv` are gated on `VERTEX_UVS_A` —
     // omit the assignment when the mesh has no UV attribute.
     shader.push_str("#ifdef VERTEX_UVS_A\n");
@@ -3202,7 +3281,8 @@ fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>
     shader.push_str("    return out;\n");
     shader.push_str("}\n");
 
-    shader
+    let extra_params = vctx.parameters[seeded_params..].to_vec();
+    (shader, extra_params, vctx.warnings)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

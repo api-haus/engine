@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use super::codegen::{self, MaterialParam, TextureBinding};
 use super::graph::{AlphaMode, MaterialDomain, MaterialGraph};
+use super::validate;
 
 /// Metadata sidecar stored next to a compiled `.wgsl`. Captures the codegen
 /// outputs that a runtime needs to assemble a `GraphMaterial` without
@@ -79,6 +80,10 @@ pub fn project_relative(project_root: &Path, fs_path: &Path) -> String {
 ///
 /// The caller is responsible for writing the updated graph back to
 /// `material_fs_path` — this function only handles the compiled outputs.
+/// Validates through naga and writes either way. Holding a broken shader back
+/// saves nothing: a `.material` with no usable `.wgsl` falls through to
+/// `resolver`'s live codegen, which builds the same broken shader in memory.
+/// Errors returned here mean "this will not compile", not "nothing written".
 pub fn save_compiled(
     graph: &mut MaterialGraph,
     project_root: &Path,
@@ -90,6 +95,20 @@ pub fn save_compiled(
         return Ok(result.errors);
     }
 
+    let errors = match validate::validate_compile_result(&result) {
+        Ok(()) => Vec::new(),
+        Err(errors) => errors.iter().map(|e| e.to_string()).collect(),
+    };
+    write_artifacts(graph, project_root, material_fs_path, result)?;
+    Ok(errors)
+}
+
+fn write_artifacts(
+    graph: &mut MaterialGraph,
+    project_root: &Path,
+    material_fs_path: &Path,
+    result: codegen::CompileResult,
+) -> io::Result<()> {
     let wgsl_fs_path = default_wgsl_path_for_material(material_fs_path);
     let meta_fs_path = meta_path_for_wgsl(&wgsl_fs_path);
 
@@ -111,7 +130,7 @@ pub fn save_compiled(
     std::fs::write(&meta_fs_path, meta_json.as_bytes())?;
 
     graph.wgsl_path = Some(project_relative(project_root, &wgsl_fs_path));
-    Ok(Vec::new())
+    Ok(())
 }
 
 /// One-shot: run [`save_compiled`] then serialise the updated `graph` to a
@@ -125,4 +144,62 @@ pub fn save_compiled_and_serialize(
     let errors = save_compiled(graph, project_root, material_fs_path)?;
     let json = serde_json::to_string_pretty(graph).map_err(io::Error::other)?;
     Ok((json, errors))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::material::graph::{MaterialDomain, PinValue};
+
+    /// Returns the graph and the `custom/code` node's id, so a test can
+    /// rewrite the snippet without hardcoding the id the graph handed out.
+    fn custom_code_graph(code: &str) -> (MaterialGraph, u64) {
+        let mut graph = MaterialGraph::new("t", MaterialDomain::Surface);
+        let id = graph.add_node("custom/code", [0.0, 0.0]);
+        graph
+            .get_node_mut(id)
+            .unwrap()
+            .input_values
+            .insert("code".to_string(), PinValue::String(code.to_string()));
+        let output = graph.output_node().unwrap().id;
+        graph.connect(id, "result", output, "base_color");
+        (graph, id)
+    }
+
+    /// A graph whose shader naga rejects is written *and* reported. The
+    /// broken WGSL comes from a `custom/code` snippet, the one place a user
+    /// can still author invalid WGSL after the node-level fixes.
+    #[test]
+    fn invalid_graph_is_written_and_reported() {
+        let dir = std::env::temp_dir().join(format!(
+            "renzora_precompiled_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let material_path = dir.join("t.material");
+        let wgsl_path = dir.join("t.wgsl");
+
+        let (mut graph, code_node) = custom_code_graph("result = a;");
+        let errors = save_compiled(&mut graph, &dir, &material_path).unwrap();
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        let good_wgsl = std::fs::read_to_string(&wgsl_path).unwrap();
+
+        graph.get_node_mut(code_node).unwrap().input_values.insert(
+            "code".to_string(),
+            PinValue::String("result = vec4<f32>(;".to_string()),
+        );
+        let errors = save_compiled(&mut graph, &dir, &material_path).unwrap();
+        assert!(!errors.is_empty(), "the broken snippet must be reported");
+        assert_ne!(
+            std::fs::read_to_string(&wgsl_path).unwrap(),
+            good_wgsl,
+            "the broken shader must reach disk so it is inspectable and fails loudly"
+        );
+        assert!(
+            graph.wgsl_path.is_some(),
+            "a validation failure must not clear the link the way a codegen error does"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

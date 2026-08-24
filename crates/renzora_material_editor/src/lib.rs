@@ -68,6 +68,7 @@ pub struct MaterialEditorState {
     pub compiled_wgsl: Option<String>,
     /// Compilation errors (shown in UI).
     pub compile_errors: Vec<String>,
+    pub compile_warnings: Vec<String>,
     /// True when graph has unsaved changes.
     pub is_dirty: bool,
     /// Material tabs for the current selection — one per distinct material in the
@@ -86,10 +87,32 @@ impl Default for MaterialEditorState {
             selected_node: None,
             compiled_wgsl: None,
             compile_errors: Vec::new(),
+            compile_warnings: Vec::new(),
             is_dirty: false,
             tabs: Vec::new(),
             active_tab: None,
         }
+    }
+}
+
+impl MaterialEditorState {
+    /// Runs validation here rather than at each call site, so every path into
+    /// the panel reports the same way whether codegen or naga rejected it.
+    pub fn apply_compile_result(
+        &mut self,
+        result: renzora_shader::material::codegen::CompileResult,
+    ) {
+        let mut errors = result.errors.clone();
+        if errors.is_empty() {
+            if let Err(validation) =
+                renzora_shader::material::validate::validate_compile_result(&result)
+            {
+                errors.extend(validation.iter().map(|e| e.to_string()));
+            }
+        }
+        self.compile_errors = errors;
+        self.compile_warnings = result.warnings.clone();
+        self.compiled_wgsl = Some(result.fragment_shader);
     }
 }
 
@@ -179,6 +202,9 @@ pub fn save_material_graph(world: &mut World, path: &str, graph: &mut MaterialGr
     for err in &errors {
         warn!("[material_editor] codegen error in '{}': {}", path, err);
     }
+    if !errors.is_empty() {
+        world.resource_mut::<MaterialEditorState>().compile_errors = errors;
+    }
 
     if let Err(e) = std::fs::write(&fs_path, &graph_json) {
         warn!("[material_editor] Save failed: {}", e);
@@ -261,8 +287,7 @@ pub fn edit_material_graph(
     if open_here {
         let result = renzora_shader::material::codegen::compile(&graph);
         let mut state = world.resource_mut::<MaterialEditorState>();
-        state.compiled_wgsl = Some(result.fragment_shader);
-        state.compile_errors = result.errors;
+        state.apply_compile_result(result);
         state.graph = graph;
         state.is_dirty = false;
     }

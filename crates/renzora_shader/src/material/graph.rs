@@ -99,6 +99,14 @@ impl PinType {
             (PinType::Vec4, PinType::Vec2) => format!("({e}).xy"),
             (PinType::Vec4, PinType::Vec3) => format!("({e}).xyz"),
 
+            // Bool → Float. `param/bool` is the only Bool *output* in the
+            // node set and its codegen emits a real WGSL `bool`; without this
+            // arm the `_` fallthrough handed that `bool` to a float pin
+            // unchanged and the shader failed naga validation. `select` keeps
+            // the branchless semantics every other boolean in the graph uses
+            // (comparisons yield 0.0/1.0, `and` is min, `or` is max).
+            (PinType::Bool, PinType::Float) => format!("select(0.0, 1.0, {e})"),
+
             _ => expr.to_string(),
         }
     }
@@ -155,7 +163,14 @@ impl PinValue {
             // Guard against non-finite values reaching the shader — `{:.6}` on
             // inf/NaN emits `inf`/`NaN`, which is not valid WGSL and would fail
             // pipeline creation for the whole material.
-            Self::Float(v) => format!("{:.6}", if v.is_finite() { *v } else { 0.0 }),
+            //
+            // The `f32(...)` wrapper makes the literal concretely typed. A bare
+            // `0.000000` stays `{AbstractFloat}` until an operation pins it down,
+            // and when *every* argument to a builtin is abstract — an unwired
+            // `math/lerp` compiles to `mix(0.000000, 1.000000, 0.500000)` — naga
+            // (the real compiler, via wgpu) refuses to concretize it. Emitting a
+            // concrete literal kills that whole class at the source.
+            Self::Float(v) => format!("f32({:.6})", if v.is_finite() { *v } else { 0.0 }),
             Self::Vec2([x, y]) => format!("vec2<f32>({:.6}, {:.6})", x, y),
             Self::Vec3([x, y, z]) => format!("vec3<f32>({:.6}, {:.6}, {:.6})", x, y, z),
             Self::Vec4([x, y, z, w]) | Self::Color([x, y, z, w]) => {

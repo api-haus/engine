@@ -35,6 +35,13 @@ The **output node is the exception**. It has fifteen-odd pins, and a field on ea
 
 **Comments / groups:** select some nodes and press **`C`** to wrap them in a labelled **comment box**. Dragging the box moves every node inside it; drag the corner grip to resize, edit the header to rename, and **✕** deletes the box (keeping its nodes). Comments are visual only and saved in the `.material` file.
 
+## When the graph can't compile (diagnostics)
+
+The graph is compiled to a WGSL shader every time you change it, and the result is checked with the same compiler front end (naga) the GPU path uses — so a broken graph is *told to you*, not silently rendered as a fallback.
+
+- **The diagnostics strip** along the bottom of the graph panel lists every problem the latest compile produced. **Errors** (red ✕) mean the shader could not be built — the message is the compiler's own, with the generated-code location. **Warnings** (amber ⚠) mean the shader built but something you authored was approximated — for example declaring more than 32 distinct parameters, where the extra ones alias the last slot. The strip hides itself when there's nothing to say.
+- **A broken material fails loudly.** Saving always writes both the `.material` and the `.wgsl`, even when the shader will not compile — so the mesh stops drawing and the strip tells you why, instead of the graph and the render quietly disagreeing. Fix the errors and it comes back on the next save.
+
 ### The Surface Output node
 
 The Surface Output node is what shows up on your mesh. The pins you'll reach for most often are:
