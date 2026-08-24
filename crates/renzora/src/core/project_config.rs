@@ -1068,6 +1068,33 @@ pub fn save_autosave(settings: &AutoSaveSettings) -> std::io::Result<()> {
     std::fs::write(&path, text)
 }
 
+/// What the material save path does with a compiled `.wgsl` that fails
+/// validation (`renzora_shader::material::validate` — naga, the same front
+/// end wgpu compiles the shader with for real).
+///
+/// A contract resource so the editor's save path and the settings UI agree on
+/// one definition. Session-scoped (not persisted): the default
+/// [`InvalidShaderPolicy::Refuse`] is the right posture for authoring, and
+/// the alternative exists for debugging codegen itself.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct MaterialValidationSettings {
+    pub invalid_shader_policy: InvalidShaderPolicy,
+}
+
+/// See [`MaterialValidationSettings`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum InvalidShaderPolicy {
+    /// Leave the previous `.wgsl` on disk and report the validation errors.
+    /// The saved `.material` keeps pointing at the last-good shader, so the
+    /// material degrades to its previous appearance instead of failing
+    /// pipeline creation at draw time.
+    #[default]
+    Refuse,
+    /// Write the invalid `.wgsl` anyway — the artefact is inspectable on
+    /// disk. The validation errors are still returned to the caller.
+    WriteAnyway,
+}
+
 /// Build a run condition that fires at most once per the interval returned by
 /// `interval_ms`, read **live** from [`StatsRefreshSettings`] so a settings edit
 /// takes effect immediately. Falls back to 250 ms when the resource is absent;

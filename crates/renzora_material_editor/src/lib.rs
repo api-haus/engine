@@ -165,10 +165,17 @@ pub fn save_material_graph(world: &mut World, path: &str, graph: &mut MaterialGr
     }
 
     let (graph_json, errors) =
-        match renzora_shader::material::precompiled::save_compiled_and_serialize(
+        match renzora_shader::material::precompiled::save_compiled_and_serialize_with_policy(
             graph,
             &project_root,
             &fs_path,
+            // Session-scoped (default Refuse): a shader naga rejects is not
+            // written over the last-good one unless the user opted into
+            // WriteAnyway for codegen debugging.
+            world
+                .get_resource::<renzora::MaterialValidationSettings>()
+                .map(|s| s.invalid_shader_policy)
+                .unwrap_or_default(),
         ) {
             Ok(out) => out,
             Err(e) => {
