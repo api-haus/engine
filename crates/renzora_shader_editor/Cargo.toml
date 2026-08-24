@@ -16,5 +16,10 @@ renzora_ember = { path = "../renzora_ember" }
 crossbeam-channel = "0.5"
 notify-debouncer-full = "0.7"
 
+[dev-dependencies]
+renzora_test_harness = { path = "../renzora_test_harness" }
+# PNGs of the frames the flicker gate disagreed on, so a failure is inspectable.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [lints]
 workspace = true
