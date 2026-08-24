@@ -7462,7 +7462,6 @@ name = "renzora_clouds"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "naga",
  "renzora",
  "serde",
 ]
@@ -8854,7 +8853,6 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bytemuck",
- "naga",
  "png 0.17.16",
  "renzora",
  "renzora_physics",
@@ -9083,7 +9081,6 @@ version = "0.1.0"
 dependencies = [
  "avian3d",
  "bevy",
- "naga",
  "renzora",
  "serde",
 ]
