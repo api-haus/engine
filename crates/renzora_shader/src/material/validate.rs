@@ -296,7 +296,7 @@ fn stub_get_world_from_local(instance_index: u32) -> mat4x4<f32> {
 "#;
 
 /// Stub for the Vegetation domain's vertex stage (`mesh_functions` +
-/// `forward_io::Vertex`).
+/// `forward_io::Vertex` + `mesh_view_bindings::{view, globals}`).
 const VERTEX_STUB: &str = r#"
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -312,6 +312,11 @@ struct VertexOutput {
     @location(2) uv: vec2<f32>,
 };
 
+struct View {
+    clip_from_world: mat4x4<f32>,
+};
+@group(0) @binding(0) var<uniform> view: View;
+
 struct Globals {
     time: f32,
     delta_time: f32,
@@ -324,9 +329,6 @@ fn stub_get_world_from_local(instance_index: u32) -> mat4x4<f32> {
 }
 fn stub_mesh_position_local_to_world(world_from_local: mat4x4<f32>, vertex_position: vec4<f32>) -> vec4<f32> {
     return world_from_local * vertex_position;
-}
-fn stub_mesh_position_world_to_clip(world_position: vec4<f32>) -> vec4<f32> {
-    return world_position;
 }
 fn stub_mesh_normal_local_to_world(vertex_normal: vec3<f32>, instance_index: u32) -> vec3<f32> {
     return vertex_normal;

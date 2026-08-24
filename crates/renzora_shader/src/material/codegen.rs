@@ -2417,6 +2417,12 @@ pub fn compile_with_functions(
     // Resolve each output pin's input (triggers recursive codegen)
     let mut resolved: HashMap<String, String> = HashMap::new();
     for pin_name in &output_pins {
+        // `vertex_offset` runs in the VERTEX stage and is compiled by a
+        // dedicated pass below; resolving it in this fragment-stage walk
+        // would emit its body as dead code into the fragment shader.
+        if graph.domain == MaterialDomain::Vegetation && pin_name == "vertex_offset" {
+            continue;
+        }
         let expr = ctx.input(&output_node, pin_name);
         resolved.insert(pin_name.clone(), expr);
     }
@@ -2431,8 +2437,8 @@ pub fn compile_with_functions(
     };
 
     let vertex_shader = if graph.domain == MaterialDomain::Vegetation {
-        if resolved.contains_key("vertex_offset") {
-            Some(build_vegetation_vertex_shader(&ctx, &resolved))
+        if output_pins.iter().any(|p| p == "vertex_offset") {
+            Some(build_vegetation_vertex_shader(graph, functions))
         } else {
             None
         }
@@ -3197,16 +3203,64 @@ fn build_unlit_shader(ctx: &Ctx, resolved: &HashMap<String, String>) -> String {
     shader
 }
 
-fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>) -> String {
-    let vertex_offset = resolved
-        .get("vertex_offset")
-        .cloned()
-        .unwrap_or("vec3<f32>(0.0, 0.0, 0.0)".into());
+/// Rewrite fragment-stage input references in a vertex-offset subgraph line
+/// to the vertex-stage equivalents available inside `fn vertex`.
+///
+/// Node codegen targets the fragment stage, where `in` is `VertexOutput`:
+/// `in.world_position` is the fragment's world position, `in.position` the
+/// fragment coord. In the vertex stage `in` is `Vertex` (mesh-local
+/// attributes), so the substitutions map onto the locals the vertex shader
+/// computes before the displacement is applied: `world_pos` (vec4 world
+/// position) and `mat_world_normal`.
+fn vertex_stage_substitute(line: &str) -> String {
+    line.replace("in.world_position", "world_pos")
+        .replace("in.world_normal", "mat_world_normal")
+        // After the two replacements above, a remaining `in.position` can
+        // only mean the fragment coord; the honest vertex-stage analog is
+        // the mesh-local position.
+        .replace("in.position", "vec4<f32>(in.position, 1.0)")
+}
+
+/// The vegetation vertex stage, with wind / vertex displacement.
+///
+/// The displacement subgraph is compiled by its own walk, here, not reused
+/// from the fragment pass: node codegen emits stage-specific code (the wind
+/// node's `let wind_N = …` references `globals.time` and a world position),
+/// and pasting the fragment-pass *variable name* into the vertex shader
+/// references a local that only exists in `fn fragment` — naga rejects it,
+/// which is exactly how this was found.
+///
+/// Two limitations, by construction: the vertex stage has no implicit
+/// derivatives, so a texture-sample node wired into `vertex_offset` produces
+/// a shader naga rejects (validate.rs surfaces it); and the substitution in
+/// [`vertex_stage_substitute`] is textual, so a node referencing a
+/// fragment-only input with no vertex analog gets the approximation
+/// documented there.
+fn build_vegetation_vertex_shader(
+    graph: &MaterialGraph,
+    functions: Option<&FunctionRegistry>,
+) -> String {
+    let output_node = graph.output_node().unwrap();
+
+    // Dedicated vertex-stage pass over just the `vertex_offset` subgraph.
+    let mut vctx = Ctx::new_with_functions(graph, functions);
+    let vertex_offset = vctx.input(&output_node, "vertex_offset");
+    let vertex_offset = vertex_stage_substitute(&vertex_offset);
 
     let mut shader = String::new();
     shader.push_str("#import bevy_pbr::mesh_functions\n");
     shader.push_str("#import bevy_pbr::forward_io::{Vertex, VertexOutput}\n");
-    shader.push_str("#import bevy_pbr::mesh_view_bindings::globals\n\n");
+    shader.push_str("#import bevy_pbr::mesh_view_bindings::{view, globals}\n\n");
+
+    // Parameters the displacement subgraph declared (e.g. a wind-strength
+    // param) read the same group-3 UBO the fragment stage uses — the
+    // material's bind group is shared across both stages of the pipeline.
+    if !vctx.parameters.is_empty() {
+        shader.push_str("struct SurfaceGraphParams { slots: array<vec4<f32>, 32>, }\n");
+        shader.push_str("@group(3) @binding(118) var<uniform> material_params: SurfaceGraphParams;\n");
+    }
+    shader.push_str(&noise_helpers(&vctx));
+    emit_module_prelude(&vctx, &mut shader);
 
     shader.push_str("@vertex\n");
     shader.push_str("fn vertex(in: Vertex) -> VertexOutput {\n");
@@ -3215,6 +3269,17 @@ fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>
     shader.push_str("        mesh_functions::get_world_from_local(in.instance_index),\n");
     shader.push_str("        vec4<f32>(in.position, 1.0)\n");
     shader.push_str("    );\n");
+    shader.push_str("    let mat_world_normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);\n");
+    // Same mesh-conditional aliases as the fragment stage, so a displacement
+    // subgraph referencing mat_uv / mat_vertex_color compiles for meshes
+    // without those attributes too.
+    shader.push_str(&fragment_input_aliases());
+
+    // Displacement subgraph body — vertex-stage locals substituted.
+    for line in &vctx.lines {
+        shader.push_str(&vertex_stage_substitute(line));
+        shader.push('\n');
+    }
 
     // Wind vertex displacement — the resolved expression references globals.time
     // which is available since we imported Globals
@@ -3223,8 +3288,12 @@ fn build_vegetation_vertex_shader(_ctx: &Ctx, resolved: &HashMap<String, String>
     ));
 
     shader.push_str("    out.world_position = world_pos;\n");
-    shader.push_str("    out.position = mesh_functions::mesh_position_world_to_clip(world_pos);\n");
-    shader.push_str("    out.world_normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);\n");
+    // `view.clip_from_world * world_pos`, spelled out: Bevy 0.19 moved this
+    // behind `view_transformations::position_world_to_clip` (which takes the
+    // matrix as an argument) — the old `mesh_position_world_to_clip(world_pos)`
+    // no longer exists, and importing a renamed helper is how this broke.
+    shader.push_str("    out.position = view.clip_from_world * world_pos;\n");
+    shader.push_str("    out.world_normal = mat_world_normal;\n");
     // Both `Vertex.uv` and `VertexOutput.uv` are gated on `VERTEX_UVS_A` —
     // omit the assignment when the mesh has no UV attribute.
     shader.push_str("#ifdef VERTEX_UVS_A\n");
