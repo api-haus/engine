@@ -246,6 +246,9 @@ pub(crate) fn build(app: &mut App) {
     // value even if the `renzora_autosave` plugin (its real owner) isn't present.
     // `insert_resource` from that plugin wins over this when it is.
     app.insert_resource(renzora::load_autosave());
+    // Present with its default (Refuse) even if the material editor plugin
+    // isn't loaded — the settings UI writes this resource directly.
+    app.init_resource::<renzora::MaterialValidationSettings>();
     // Seed the shared log-buffer cap from the persisted pref up front, so logs
     // emitted during startup (before `sync_console_log_limit` first runs) are
     // already bounded by the user's chosen limit.
@@ -2130,6 +2133,33 @@ fn tab_editor(commands: &mut Commands, fonts: &EmberFonts, col: Entity, focus: O
     );
     settings_row(commands, fonts, body, 1, &tr("settings.row.interval_secs"), dv);
     note_row(commands, fonts, body, &tr("settings.hint.autosave"));
+
+    // Materials — the shader-validation policy (InvalidShaderPolicy). Default
+    // Refuse: a graph whose shader naga rejects never overwrites the
+    // last-good `.wgsl`. The toggle is the WriteAnyway escape hatch for
+    // debugging codegen, which is why it lives in settings and not on the
+    // material panel — it is not part of an authoring workflow.
+    let (sec, body) = section(commands, fonts, "palette", &tr("settings.cat.materials"), A_PURPLE);
+    commands.entity(col).add_child(sec);
+    focus_hide(commands, sec, focus, "autosave");
+    let t = ctl_toggle(
+        commands,
+        false,
+        |w| {
+            w.get_resource::<renzora::MaterialValidationSettings>()
+                .is_some_and(|s| s.invalid_shader_policy == renzora::InvalidShaderPolicy::WriteAnyway)
+        },
+        |w, &v| {
+            w.resource_mut::<renzora::MaterialValidationSettings>().invalid_shader_policy =
+                if v {
+                    renzora::InvalidShaderPolicy::WriteAnyway
+                } else {
+                    renzora::InvalidShaderPolicy::Refuse
+                };
+        },
+    );
+    settings_row(commands, fonts, body, 0, &tr("settings.row.write_invalid_wgsl"), t);
+    note_row(commands, fonts, body, &tr("settings.hint.write_invalid_wgsl"));
 
     let (sec, body) = section(commands, fonts, "monitor", &tr("settings.cat.renderer"), A_BLUE);
     commands.entity(col).add_child(sec);

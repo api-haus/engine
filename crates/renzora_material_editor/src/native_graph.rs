@@ -139,8 +139,7 @@ fn restore_material_graph(
     let result = renzora_shader::material::codegen::compile(g);
     {
         let mut st = world.resource_mut::<MaterialEditorState>();
-        st.compiled_wgsl = Some(result.fragment_shader);
-        st.compile_errors = result.errors;
+        st.apply_compile_result(result);
     }
     if let Some(mut sh) = world.get_resource_mut::<MatUndoShadow>() {
         sh.graph = Some(g.clone());
@@ -318,8 +317,66 @@ fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
     keyed_list(commands, nodes_layer, move |w| node_snapshot(&Rx::new(w.untracked()), canvas, viewport));
 
     commands.entity(root).add_children(&[toolbar, handle.viewport]);
+
+    // Diagnostics strip along the bottom: codegen errors, naga validation
+    // rejections, warnings and refused connections — everything
+    // `apply_compile_result`, the connect gate and the save path funnel into
+    // `MaterialEditorState`. Hidden while both channels are empty.
+    let diag = commands
+        .spawn((
+            Node { width: Val::Percent(100.0), max_height: Val::Px(140.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(6.0)), row_gap: Val::Px(3.0), overflow: Overflow::clip(), ..default() },
+            Name::new("material-graph-diagnostics"),
+            BackgroundColor(rgb(section_bg())),
+        ))
+        .id();
+    bind_display(commands, diag, |w| {
+        w.get_resource::<MaterialEditorState>()
+            .is_some_and(|s| !s.compile_errors.is_empty() || !s.compile_warnings.is_empty())
+    });
+    renzora_ember::virtual_scroll::virtual_scroll(commands, diag, 6, diagnostics_snapshot);
+    commands.entity(root).add_child(diag);
+
     renzora_editor_framework::mark_drop_zone(commands, root);
     root
+}
+
+/// Errors first (red), then warnings (amber) — one row each, monospace, in
+/// the shape of the shader editor's compiler log.
+fn diagnostics_snapshot(world: &Rx) -> KeyedSnapshot {
+    let Some(state) = world.get_resource::<MaterialEditorState>() else {
+        return KeyedSnapshot { items: Vec::new(), build: Box::new(|c, _, _| c.spawn(Node::default()).id()) };
+    };
+    let entries: Vec<(String, bool)> = state
+        .compile_errors
+        .iter()
+        .map(|e| (e.clone(), true))
+        .chain(state.compile_warnings.iter().map(|w| (w.clone(), false)))
+        .collect();
+    let items: Vec<(u64, u64)> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, (msg, is_error))| {
+            let mut k = hasher();
+            i.hash(&mut k);
+            let mut h = hasher();
+            (msg, is_error).hash(&mut h);
+            (k.finish(), h.finish())
+        })
+        .collect();
+    KeyedSnapshot {
+        items,
+        build: Box::new(move |c, f, i| {
+            let (msg, is_error) = &entries[i];
+            let color = if *is_error { close_red() } else { warn_amber() };
+            let row = c
+                .spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Start, column_gap: Val::Px(5.0), ..default() })
+                .id();
+            let icon = icon_text(c, &f.phosphor, if *is_error { "x-circle" } else { "warning" }, color, 12.0);
+            let lbl = c.spawn((Text::new(msg.clone()), ui_font(&f.mono, 11.0), TextColor(rgb(color)))).id();
+            c.entity(row).add_children(&[icon, lbl]);
+            row
+        }),
+    }
 }
 
 /// A thin vertical separator between toolbar button groups.
@@ -616,6 +673,7 @@ fn mat_graph_load(world: &mut World) {
         st.graph = MaterialGraph::new("New Material", renzora_shader::material::graph::MaterialDomain::Surface);
         st.compiled_wgsl = None;
         st.compile_errors.clear();
+        st.compile_warnings.clear();
         return;
     }
 
@@ -713,8 +771,7 @@ fn load_material_tab(world: &mut World, idx: usize) {
         let graph = MaterialGraph::new(&tab.label, renzora_shader::material::graph::MaterialDomain::Surface);
         let result = codegen::compile(&graph);
         let mut st = world.resource_mut::<MaterialEditorState>();
-        st.compiled_wgsl = Some(result.fragment_shader);
-        st.compile_errors = result.errors;
+        st.apply_compile_result(result);
         st.graph = graph;
         st.edit_mode = match tab.entity {
             Some(entity) => MaterialEditMode::Pending { entity },
@@ -735,8 +792,7 @@ fn load_material_tab(world: &mut World, idx: usize) {
     match loaded {
         Some(graph) => {
             let result = codegen::compile(&graph);
-            st.compiled_wgsl = Some(result.fragment_shader);
-            st.compile_errors = result.errors;
+            st.apply_compile_result(result);
             st.graph = graph;
             st.edit_mode = match tab.entity {
                 Some(entity) => MaterialEditMode::Existing { path, entity },
@@ -748,8 +804,7 @@ fn load_material_tab(world: &mut World, idx: usize) {
             let name = file_stem_label(&path);
             let graph = MaterialGraph::new(&name, renzora_shader::material::graph::MaterialDomain::Surface);
             let result = codegen::compile(&graph);
-            st.compiled_wgsl = Some(result.fragment_shader);
-            st.compile_errors = result.errors;
+            st.apply_compile_result(result);
             st.graph = graph;
             st.edit_mode = match tab.entity {
                 Some(entity) => MaterialEditMode::Pending { entity },
@@ -786,8 +841,37 @@ fn mat_graph_sync(world: &mut World) {
                     }
                 }
                 GraphEdit::Connect { from_node, from_pin, to_node, to_pin } => {
-                    st.graph.connect(from_node, &from_pin, to_node, &to_pin);
-                    structural = true;
+                    // Hard type gate. `PinType::compatible` is exactly the set
+                    // of pairs codegen's `cast_expr` can honor, but it was only
+                    // ever used as a sort key — so the editor happily wired a
+                    // `bool` into a float pin and the shader failed at draw
+                    // time. Reject here and say why; the message sits in
+                    // compile_errors until the next successful recompile.
+                    let pin_type = |node_id: u64, pin: &str, dir: PinDir| {
+                        st.graph
+                            .get_node(node_id)
+                            .and_then(|n| node_def(&n.node_type))
+                            .and_then(|d| {
+                                (d.pins)()
+                                    .into_iter()
+                                    .find(|p| p.name == pin && p.direction == dir)
+                            })
+                            .map(|p| p.pin_type)
+                    };
+                    match (
+                        pin_type(from_node, &from_pin, PinDir::Output),
+                        pin_type(to_node, &to_pin, PinDir::Input),
+                    ) {
+                        (Some(from_ty), Some(to_ty)) if !PinType::compatible(from_ty, to_ty) => {
+                            st.compile_errors = vec![format!(
+                                "Connection refused: {from_ty:?} → {to_ty:?} pins are incompatible ({from_pin} → {to_pin})"
+                            )];
+                        }
+                        _ => {
+                            st.graph.connect(from_node, &from_pin, to_node, &to_pin);
+                            structural = true;
+                        }
+                    }
                 }
                 GraphEdit::Disconnect { to_node, to_pin, .. } => {
                     st.graph.disconnect(to_node, &to_pin);
@@ -842,8 +926,7 @@ fn mat_graph_sync(world: &mut World) {
         let graph = world.resource::<MaterialEditorState>().graph.clone();
         let result = renzora_shader::material::codegen::compile(&graph);
         let mut st = world.resource_mut::<MaterialEditorState>();
-        st.compiled_wgsl = Some(result.fragment_shader);
-        st.compile_errors = result.errors;
+        st.apply_compile_result(result);
     }
     if structural || dirty {
         world.resource_mut::<MaterialEditorState>().is_dirty = true;
@@ -979,8 +1062,7 @@ fn mat_add_and_wire(world: &mut World, node_type: &str, base: [f32; 2], src: (u6
     }
     let graph = s.graph.clone();
     let result = renzora_shader::material::codegen::compile(&graph);
-    s.compiled_wgsl = Some(result.fragment_shader);
-    s.compile_errors = result.errors;
+    s.apply_compile_result(result);
     s.is_dirty = true;
 }
 
@@ -1010,8 +1092,7 @@ fn switch_sample_type(world: &mut World, node_id: u64, variant: usize) {
 
     let graph = s.graph.clone();
     let result = renzora_shader::material::codegen::compile(&graph);
-    s.compiled_wgsl = Some(result.fragment_shader);
-    s.compile_errors = result.errors;
+    s.apply_compile_result(result);
     s.is_dirty = true;
 }
 
@@ -1087,8 +1168,7 @@ fn mat_graph_image_drop(
     }
     let graph = state.graph.clone();
     let result = renzora_shader::material::codegen::compile(&graph);
-    state.compiled_wgsl = Some(result.fragment_shader);
-    state.compile_errors = result.errors;
+    state.apply_compile_result(result);
     state.is_dirty = true;
 
     // Consume the drag so no other release-frame handler also acts on it.
@@ -1117,8 +1197,7 @@ fn mat_node_entries(base: [f32; 2]) -> Vec<SearchEntry> {
                     s.graph.add_node(node_type, base);
                     let graph = s.graph.clone();
                     let result = renzora_shader::material::codegen::compile(&graph);
-                    s.compiled_wgsl = Some(result.fragment_shader);
-                    s.compile_errors = result.errors;
+                    s.apply_compile_result(result);
                     s.is_dirty = true;
                 }
             }));
@@ -1223,8 +1302,7 @@ fn sync_to_file(world: &mut World, path: String) {
     if let Ok(json) = std::fs::read_to_string(&fs_path) {
         if let Ok(graph) = serde_json::from_str::<MaterialGraph>(&json) {
             let result = codegen::compile(&graph);
-            state.compiled_wgsl = Some(result.fragment_shader);
-            state.compile_errors = result.errors;
+            state.apply_compile_result(result);
             state.graph = graph;
             state.edit_mode = MaterialEditMode::EditingFile { path };
             return;
@@ -1237,8 +1315,7 @@ fn sync_to_file(world: &mut World, path: String) {
     let name = std::path::Path::new(&path).file_stem().and_then(|s| s.to_str()).unwrap_or("material").to_string();
     let graph = MaterialGraph::new(&name, renzora_shader::material::graph::MaterialDomain::Surface);
     let result = codegen::compile(&graph);
-    state.compiled_wgsl = Some(result.fragment_shader);
-    state.compile_errors = result.errors;
+    state.apply_compile_result(result);
     state.graph = graph;
     state.edit_mode = MaterialEditMode::EditingFile { path };
 }

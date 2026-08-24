@@ -68,6 +68,10 @@ pub struct MaterialEditorState {
     pub compiled_wgsl: Option<String>,
     /// Compilation errors (shown in UI).
     pub compile_errors: Vec<String>,
+    /// Compilation warnings (shown in UI) — the shader built, but something
+    /// authored was silently approximated (e.g. the parameter-slot overflow
+    /// in `codegen::intern_parameter`).
+    pub compile_warnings: Vec<String>,
     /// True when graph has unsaved changes.
     pub is_dirty: bool,
     /// Material tabs for the current selection — one per distinct material in the
@@ -86,10 +90,36 @@ impl Default for MaterialEditorState {
             selected_node: None,
             compiled_wgsl: None,
             compile_errors: Vec::new(),
+            compile_warnings: Vec::new(),
             is_dirty: false,
             tabs: Vec::new(),
             active_tab: None,
         }
+    }
+}
+
+impl MaterialEditorState {
+    /// Store a fresh [`CompileResult`]'s diagnostics for the panel.
+    ///
+    /// Validation runs here, not at each call site: a shader that passes
+    /// codegen but fails naga (the same front end wgpu compiles with) is
+    /// reported in the same `compile_errors` channel as a codegen error, so
+    /// the panel, CI and the save path all show the same strings.
+    pub fn apply_compile_result(
+        &mut self,
+        result: renzora_shader::material::codegen::CompileResult,
+    ) {
+        let mut errors = result.errors.clone();
+        if errors.is_empty() {
+            if let Err(validation) =
+                renzora_shader::material::validate::validate_compile_result(&result)
+            {
+                errors.extend(validation.iter().map(|e| e.to_string()));
+            }
+        }
+        self.compile_errors = errors;
+        self.compile_warnings = result.warnings.clone();
+        self.compiled_wgsl = Some(result.fragment_shader);
     }
 }
 
@@ -100,6 +130,7 @@ impl Plugin for MaterialEditorPlugin {
     fn build(&self, app: &mut App) {
         info!("[editor] MaterialEditorPlugin");
         app.init_resource::<MaterialEditorState>();
+        app.init_resource::<renzora::MaterialValidationSettings>();
         app.register_type::<Mesh3d>();
         app.add_plugins(preview::MaterialPreviewPlugin);
         app.add_plugins(file_thumbnails::MaterialFileThumbnailPlugin);
@@ -186,6 +217,12 @@ pub fn save_material_graph(world: &mut World, path: &str, graph: &mut MaterialGr
     for err in &errors {
         warn!("[material_editor] codegen error in '{}': {}", path, err);
     }
+    if !errors.is_empty() {
+        // Surface the refusal where the author is looking: the graph panel's
+        // diagnostics strip. The graph JSON is still written below; what was
+        // refused is the broken `.wgsl`.
+        world.resource_mut::<MaterialEditorState>().compile_errors = errors;
+    }
 
     if let Err(e) = std::fs::write(&fs_path, &graph_json) {
         warn!("[material_editor] Save failed: {}", e);
@@ -268,8 +305,7 @@ pub fn edit_material_graph(
     if open_here {
         let result = renzora_shader::material::codegen::compile(&graph);
         let mut state = world.resource_mut::<MaterialEditorState>();
-        state.compiled_wgsl = Some(result.fragment_shader);
-        state.compile_errors = result.errors;
+        state.apply_compile_result(result);
         state.graph = graph;
         state.is_dirty = false;
     }

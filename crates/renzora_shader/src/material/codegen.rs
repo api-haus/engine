@@ -172,6 +172,12 @@ struct Ctx<'a> {
     /// look up an already-allocated slot in O(1) when the same parameter
     /// name appears on multiple nodes.
     parameter_slots: HashMap<String, usize>,
+    /// Non-fatal diagnostics surfaced to the editor panel. Distinct from
+    /// `errors` (which mean the shader is incomplete): a warning means the
+    /// shader compiled but something the user authored was silently
+    /// approximated — the parameter-slot overflow below being the one case
+    /// so far.
+    warnings: Vec<String>,
 }
 
 impl<'a> Ctx<'a> {
@@ -221,6 +227,7 @@ impl<'a> Ctx<'a> {
             uses_mesh_functions: false,
             parameters: Vec::new(),
             parameter_slots: HashMap::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -239,6 +246,15 @@ impl<'a> Ctx<'a> {
             // Once we hit the cap, every subsequent unique name aliases the
             // last slot. We still record the parameter so tooling can list
             // it, but the actual reads will collide.
+            self.warnings.push(format!(
+                "parameter '{name}' exceeds the {MAX_PARAMETER_SLOTS}-slot parameter buffer; \
+                 it aliases slot {} and will read as '{}'. Split the material or reuse names.",
+                MAX_PARAMETER_SLOTS - 1,
+                self.parameters
+                    .last()
+                    .map(|p| p.name.as_str())
+                    .unwrap_or("?"),
+            ));
             return MAX_PARAMETER_SLOTS - 1;
         }
         self.parameters.push(MaterialParam {
@@ -2438,7 +2454,11 @@ pub fn compile_with_functions(
 
     let vertex_shader = if graph.domain == MaterialDomain::Vegetation {
         if output_pins.iter().any(|p| p == "vertex_offset") {
-            Some(build_vegetation_vertex_shader(graph, functions))
+            let (shader, extra_params, vertex_warnings) =
+                build_vegetation_vertex_shader(graph, functions, &ctx.parameters);
+            ctx.parameters.extend(extra_params);
+            ctx.warnings.extend(vertex_warnings);
+            Some(shader)
         } else {
             None
         }
@@ -2452,7 +2472,7 @@ pub fn compile_with_functions(
         texture_bindings: ctx.texture_bindings,
         domain: graph.domain,
         errors,
-        warnings: Vec::new(),
+        warnings: ctx.warnings,
         requires_transmission,
         parameters: ctx.parameters,
     }
@@ -3239,12 +3259,25 @@ fn vertex_stage_substitute(line: &str) -> String {
 fn build_vegetation_vertex_shader(
     graph: &MaterialGraph,
     functions: Option<&FunctionRegistry>,
-) -> String {
+    fragment_parameters: &[MaterialParam],
+) -> (String, Vec<MaterialParam>, Vec<String>) {
     let output_node = graph.output_node().unwrap();
 
-    // Dedicated vertex-stage pass over just the `vertex_offset` subgraph.
+    // Dedicated vertex-stage pass over just the `vertex_offset` subgraph,
+    // seeded with the fragment pass's parameter table: both stages read the
+    // same group-3 UBO, so a parameter referenced by the displacement must
+    // land on the slot the fragment stage assigned it. Any *new* parameters
+    // the vertex pass interns are returned and appended by the caller,
+    // keeping slot indices in lockstep.
     let mut vctx = Ctx::new_with_functions(graph, functions);
-    let vertex_offset = vctx.input(&output_node, "vertex_offset");
+    vctx.parameters = fragment_parameters.to_vec();
+    vctx.parameter_slots = fragment_parameters
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.name.clone(), i))
+        .collect();
+    let seeded_params = vctx.parameters.len();
+    let vertex_offset = vctx.input(output_node, "vertex_offset");
     let vertex_offset = vertex_stage_substitute(&vertex_offset);
 
     let mut shader = String::new();
@@ -3302,7 +3335,8 @@ fn build_vegetation_vertex_shader(
     shader.push_str("    return out;\n");
     shader.push_str("}\n");
 
-    shader
+    let extra_params = vctx.parameters[seeded_params..].to_vec();
+    (shader, extra_params, vctx.warnings)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
