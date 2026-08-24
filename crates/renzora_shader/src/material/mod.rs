@@ -11,6 +11,7 @@ pub mod runtime;
 pub mod standard_build;
 pub mod surface_ext;
 pub mod texture_slots;
+pub mod validate;
 
 // Re-export the public asset type at module root so downstream code can write
 // `material::GraphMaterial` the same way it did before this rewrite.
@@ -107,9 +108,12 @@ fn on_pbr_material_extracted(trigger: On<renzora::PbrMaterialExtracted>) {
         ev.project_root.clone()
     };
     match precompiled::save_compiled_and_serialize(&mut graph, &project_root, &path) {
-        Ok((json, errors)) => {
-            for err in &errors {
+        Ok((json, report)) => {
+            for err in &report.errors {
                 warn!("[material] codegen '{}': {}", ev.name, err);
+            }
+            for warning in &report.warnings {
+                warn!("[material] codegen warning '{}': {}", ev.name, warning);
             }
             if let Err(e) = std::fs::write(&path, json) {
                 warn!("[material] write '{}': {}", path.display(), e);

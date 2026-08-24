@@ -68,14 +68,20 @@ pub fn project_relative(project_root: &Path, fs_path: &Path) -> String {
         .unwrap_or_else(|_| fs_path.to_string_lossy().replace('\\', "/"))
 }
 
+/// What a save-compile has to say. `errors` non-empty means no `.wgsl` was
+/// written. `warnings` means one was, but the graph is on borrowed time.
+#[derive(Debug, Default)]
+pub struct SaveReport {
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
 /// Run codegen on `graph`, write `.wgsl` + `.wgsl.meta` to disk, and update
 /// `graph.wgsl_path` so a subsequent `serde_json::to_string_pretty(&graph)`
 /// in the caller writes the link into the `.material` file.
 ///
-/// Returns the codegen errors. An empty `Vec` means the artifacts were
-/// written successfully. On codegen error or I/O failure no `.wgsl` is
-/// written and `graph.wgsl_path` is cleared so the resolver doesn't follow
-/// a stale link.
+/// On codegen error or I/O failure no `.wgsl` is written and `graph.wgsl_path`
+/// is cleared so the resolver doesn't follow a stale link.
 ///
 /// The caller is responsible for writing the updated graph back to
 /// `material_fs_path` — this function only handles the compiled outputs.
@@ -83,11 +89,14 @@ pub fn save_compiled(
     graph: &mut MaterialGraph,
     project_root: &Path,
     material_fs_path: &Path,
-) -> io::Result<Vec<String>> {
+) -> io::Result<SaveReport> {
     let result = codegen::compile_with_functions(graph, None);
     if !result.errors.is_empty() {
         graph.wgsl_path = None;
-        return Ok(result.errors);
+        return Ok(SaveReport {
+            errors: result.errors,
+            warnings: result.warnings,
+        });
     }
 
     let wgsl_fs_path = default_wgsl_path_for_material(material_fs_path);
@@ -111,7 +120,10 @@ pub fn save_compiled(
     std::fs::write(&meta_fs_path, meta_json.as_bytes())?;
 
     graph.wgsl_path = Some(project_relative(project_root, &wgsl_fs_path));
-    Ok(Vec::new())
+    Ok(SaveReport {
+        errors: Vec::new(),
+        warnings: result.warnings,
+    })
 }
 
 /// One-shot: run [`save_compiled`] then serialise the updated `graph` to a
@@ -121,8 +133,8 @@ pub fn save_compiled_and_serialize(
     graph: &mut MaterialGraph,
     project_root: &Path,
     material_fs_path: &Path,
-) -> io::Result<(String, Vec<String>)> {
-    let errors = save_compiled(graph, project_root, material_fs_path)?;
+) -> io::Result<(String, SaveReport)> {
+    let report = save_compiled(graph, project_root, material_fs_path)?;
     let json = serde_json::to_string_pretty(graph).map_err(io::Error::other)?;
-    Ok((json, errors))
+    Ok((json, report))
 }
