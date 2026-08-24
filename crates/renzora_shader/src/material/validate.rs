@@ -210,6 +210,9 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(5) color: vec4<f32>,
+    // MeshPipeline defines VERTEX_OUTPUT_INSTANCE_INDEX unconditionally
+    // (mesh.rs), so the real struct always carries this for our materials.
+    @location(6) @interpolate(flat) instance_index: u32,
 };
 
 struct FragmentOutput {
@@ -284,6 +287,12 @@ fn stub_prepass_motion_vector(frag_coord: vec4<f32>, sample_index: u32) -> vec2<
 // MULTIPLE_LIGHT_PROBES_IN_ARRAY, the one validation takes).
 @group(0) @binding(4) var specular_environment_map: texture_cube<f32>;
 @group(0) @binding(5) var environment_map_sampler: sampler;
+
+// `mesh_functions::get_world_from_local` — referenced by
+// `input/object_position` under the gated `mesh_functions` import.
+fn stub_get_world_from_local(instance_index: u32) -> mat4x4<f32> {
+    return mat4x4<f32>();
+}
 "#;
 
 /// Stub for the Vegetation domain's vertex stage (`mesh_functions` +

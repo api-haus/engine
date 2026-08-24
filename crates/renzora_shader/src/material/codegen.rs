@@ -152,6 +152,15 @@ struct Ctx<'a> {
     uses_cube_0: bool,
     uses_array_0: bool,
     uses_volume_0: bool,
+    /// True when any node references `mesh_functions::*` in the fragment
+    /// stage (currently only `input/object_position`). Gates the
+    /// `#import bevy_pbr::mesh_functions` header line — the import is legal
+    /// in the fragment stage of a mesh pipeline (Bevy's own
+    /// `pbr_input_from_standard_material` reads `mesh[in.instance_index]`
+    /// there, and `MeshPipeline` always defines VERTEX_OUTPUT_INSTANCE_INDEX),
+    /// but it's only emitted when used so plain materials don't reference the
+    /// group-2 mesh buffer at all.
+    uses_mesh_functions: bool,
     /// Named parameters discovered while walking the graph. The `Vec`'s
     /// position is the slot index in `material_params.slots[N]` — codegen
     /// emits reads keyed on that index, and the resolver writes the
@@ -209,6 +218,7 @@ impl<'a> Ctx<'a> {
             uses_cube_0: false,
             uses_array_0: false,
             uses_volume_0: false,
+            uses_mesh_functions: false,
             parameters: Vec::new(),
             parameter_slots: HashMap::new(),
         }
@@ -563,7 +573,9 @@ impl<'a> Ctx<'a> {
                 self.set_out(id, "position", "view.world_position.xyz".into());
             }
             "input/object_position" => {
-                // mesh_functions provides mesh[in.instance_index]
+                // mesh_functions provides mesh[in.instance_index]. The import
+                // is gated on this flag — see the field's doc comment.
+                self.uses_mesh_functions = true;
                 self.set_out(
                     id,
                     "position",
@@ -2898,6 +2910,9 @@ fn emit_ext_shader_header(ctx: &Ctx, shader: &mut String) {
     shader.push_str("#import bevy_pbr::forward_io::{VertexOutput, FragmentOutput}\n");
     shader.push_str("#import bevy_pbr::mesh_view_bindings::{view, globals}\n");
 
+    if ctx.uses_mesh_functions {
+        shader.push_str("#import bevy_pbr::mesh_functions\n");
+    }
     if ctx.uses_scene_depth || ctx.uses_scene_normal || ctx.uses_motion_vector {
         shader.push_str("#import bevy_pbr::prepass_utils\n");
     }
