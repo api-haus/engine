@@ -154,11 +154,91 @@ impl Plugin for MaterialResolverPlugin {
         app.init_resource::<MaterialCache>()
             .init_resource::<super::perf::MaterialPerfStats>()
             .init_resource::<renzora::VirtualFileReader>()
+            .init_resource::<renzora::content_problems::ContentProblems>()
             .register_type::<MaterialRef>()
             .register_type::<super::material_ref::MaterialOverrides>()
             .register_type::<super::material_ref::ParamValue>()
-            .add_systems(Update, resolve_material_refs);
+            // `PreUpdate`: the validator arrives via `Commands`, and a material
+            // resolved the same frame reports nothing, then is never looked at
+            // again.
+            .add_systems(PreUpdate, ensure_shader_validator)
+            .add_systems(Update, (resolve_material_refs, report_material_problems).chain());
     }
+}
+
+/// Compile the WGSL each graph material binds and record what the compiler says.
+///
+/// Keyed on the shader uuid rather than driven off the resolve, because the
+/// validator needs bevy_pbr's libraries and those land a frame after the first
+/// material resolves. A fresh uuid per compile catches recompiles too.
+fn report_material_problems(
+    mut checked: Local<HashMap<String, (Uuid, usize)>>,
+    cache: Res<MaterialCache>,
+    graph_materials: Option<Res<Assets<GraphMaterial>>>,
+    shaders: Option<Res<Assets<Shader>>>,
+    validator: Option<ResMut<super::validate::ShaderValidator>>,
+    mut problems: ResMut<renzora::content_problems::ContentProblems>,
+) {
+    let (Some(mut validator), Some(graph_materials), Some(shaders)) =
+        (validator, graph_materials, shaders)
+    else {
+        return;
+    };
+    let libraries = validator.library_count();
+
+    checked.retain(|path, _| cache.graph_materials.contains_key(path));
+    for (path, handle) in &cache.graph_materials {
+        let Some(uuid) = graph_materials
+            .get(handle)
+            .and_then(|m| m.extension.shader_uuid)
+        else {
+            continue;
+        };
+        // The library count is part of the key: a verdict reached against a
+        // validator that had fewer libraries was reached against imports that
+        // had not arrived yet, and has to be taken again.
+        if checked.get(path) == Some(&(uuid, libraries)) {
+            continue;
+        }
+        let Some(source) = shaders
+            .get(&Handle::<Shader>::Uuid(uuid, PhantomData))
+            .and_then(|shader| match &shader.source {
+                bevy::shader::Source::Wgsl(src) => Some(src.to_string()),
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        let found = validator.problems_for_source(&source);
+        // Logged as well as recorded: the uuid key means this runs once per
+        // compile, so the console gets the errors without repeating them every
+        // frame, and `runtime_warnings` picks them up for Scene Diagnostics.
+        for problem in &found {
+            warn!("{}: {}", path, problem.message);
+        }
+        problems.set(path.clone(), found);
+        checked.insert(path.clone(), (uuid, libraries));
+    }
+}
+
+/// Build the validator once the shader libraries have loaded, and rebuild it
+/// whenever their number changes.
+///
+/// Not at plugin-build time: bevy_pbr's libraries are embedded assets and only
+/// land in `Assets<Shader>` over the frames that follow, so a validator built
+/// on the first one that appears is missing most of the imports a material
+/// needs.
+fn ensure_shader_validator(
+    mut commands: Commands,
+    existing: Option<Res<super::validate::ShaderValidator>>,
+    shaders: Option<Res<Assets<Shader>>>,
+) {
+    let Some(shaders) = shaders else { return };
+    let count = super::validate::library_count(&shaders);
+    if count == 0 || existing.map(|v| v.library_count()) == Some(count) {
+        return;
+    }
+    commands.insert_resource(super::validate::ShaderValidator::new(&shaders));
 }
 
 /// System that finds entities with `MaterialRef` + `Mesh3d` that don't yet have a resolved material,
@@ -169,6 +249,7 @@ fn resolve_material_refs(
     query: Query<(Entity, &MaterialRef), Without<MaterialResolved>>,
     mut cache: ResMut<MaterialCache>,
     mut perf: ResMut<super::perf::MaterialPerfStats>,
+    mut problems: ResMut<renzora::content_problems::ContentProblems>,
     standard_materials: Option<ResMut<Assets<bevy::pbr::StandardMaterial>>>,
     graph_materials: Option<ResMut<Assets<GraphMaterial>>>,
     code_materials: Option<ResMut<Assets<CodeShaderMaterial>>>,
@@ -308,6 +389,9 @@ fn resolve_material_refs(
             let compile_dur = start.elapsed();
             match result {
                 Some(CompiledMaterial::Standard(handle)) => {
+                    // A trivial material is a plain `StandardMaterial` on Bevy's
+                    // own pipeline — no generated WGSL, so nothing to be wrong.
+                    problems.clear_path(path);
                     cache
                         .standard_materials
                         .insert(path.clone(), handle.clone());
@@ -349,6 +433,14 @@ fn resolve_material_refs(
                         is_derived, fs_path
                     );
                     warn!("Failed to resolve material file: {} ({})", path, err);
+                    problems.set(
+                        path.clone(),
+                        vec![renzora::content_problems::ContentProblem {
+                            severity: renzora::content_problems::ProblemSeverity::Error,
+                            message: err.clone(),
+                            line: None,
+                        }],
+                    );
                     commands.entity(entity).try_insert(MaterialResolved {
                         source_path: path.clone(),
                     });

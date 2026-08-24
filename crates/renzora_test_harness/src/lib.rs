@@ -104,6 +104,20 @@ pub fn headless_app() -> App {
     app
 }
 
+/// [`headless_app`] with a chance to add plugins first.
+///
+/// `headless_app` calls `finish()` before it returns, and Bevy refuses plugins
+/// after that — so a test that needs an engine plugin under test has to get in
+/// beforehand. `build` runs with the base plugins added and `finish()` still
+/// pending.
+pub fn headless_app_with(build: impl FnOnce(&mut App)) -> App {
+    let mut app = App::new();
+    app.add_plugins(headless_plugins(None));
+    build(&mut app);
+    app.finish();
+    app
+}
+
 /// [`headless_app`] with the asset root pointed somewhere specific.
 ///
 /// Bevy resolves the default asset root relative to the *current directory*,
@@ -139,6 +153,18 @@ pub fn gpu_app() -> Option<App> {
     }
     let mut app = App::new();
     app.add_plugins(gpu_plugins());
+    app.finish();
+    Some(app)
+}
+
+/// [`gpu_app`] with a chance to add plugins first — see [`headless_app_with`].
+pub fn gpu_app_with(build: impl FnOnce(&mut App)) -> Option<App> {
+    if std::env::var(GPU_TESTS_ENV).unwrap_or_default() != "1" {
+        return None;
+    }
+    let mut app = App::new();
+    app.add_plugins(gpu_plugins());
+    build(&mut app);
     app.finish();
     Some(app)
 }
@@ -184,11 +210,16 @@ fn gpu_plugins() -> PluginGroupBuilder {
     // whatever adapter the host offers is the one we want to test against, and
     // pinning a backend here would silently skip the lane on a runner whose
     // software Vulkan is fine but whose backend bit we guessed wrong.
-    base_plugins(None).set(WindowPlugin {
-        primary_window: None,
-        exit_condition: ExitCondition::DontExit,
-        ..default()
-    })
+    base_plugins(None)
+        // Pipelined rendering hands the render sub-app to a worker thread and
+        // takes it back a frame later, so a test that drives `update()` by hand
+        // and reads the result cannot see the frame it asked for.
+        .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
+        .set(WindowPlugin {
+            primary_window: None,
+            exit_condition: ExitCondition::DontExit,
+            ..default()
+        })
 }
 
 fn base_plugins(asset_root: Option<String>) -> PluginGroupBuilder {
