@@ -99,6 +99,14 @@ impl PinType {
             (PinType::Vec4, PinType::Vec2) => format!("({e}).xy"),
             (PinType::Vec4, PinType::Vec3) => format!("({e}).xyz"),
 
+            // Bool → Float. `param/bool` is the only Bool *output* in the
+            // node set and its codegen emits a real WGSL `bool`; without this
+            // arm the `_` fallthrough handed that `bool` to a float pin
+            // unchanged and the shader failed naga validation. `select` keeps
+            // the branchless semantics every other boolean in the graph uses
+            // (comparisons yield 0.0/1.0, `and` is min, `or` is max).
+            (PinType::Bool, PinType::Float) => format!("select(0.0, 1.0, {e})"),
+
             _ => expr.to_string(),
         }
     }
