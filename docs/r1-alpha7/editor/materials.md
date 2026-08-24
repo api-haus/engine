@@ -17,6 +17,8 @@ Your changes save automatically as you work, and the mesh updates live so you ca
 
 You build a material by dragging nodes out of the category menu and **wiring them together**: drag from a node's output dot (on its right edge) into another node's input dot (on its left edge). Anything you leave unconnected just uses the value typed into the node.
 
+Wire dots are coloured by pin type, and any numeric types interconnect freely — a `Vec2` can feed a `Color` pin, a `Float` can feed a `Vec3`, and so on (the compiler inserts the right conversion). A wire between two *different* pin colours draws as a gradient from the source colour to the target colour, so you can see at a glance where a conversion is happening. Only genuinely incompatible pins (bool, texture, sampler) refuse the connection, with the reason in the diagnostics strip.
+
 ![A material node graph: two Sample Texture nodes and a Sample Normal Map node wired by colored cables into the Surface Output node on the right](/assets/previews/material_graph.png)
 
 In the shot above, a color texture feeds the **Base Color** pin, another texture drives **Metallic** and **Roughness**, and a normal map plugs into **Normal** — all flowing into the **Surface Output** node on the right. That output node is the heart of every material.
@@ -40,6 +42,7 @@ The **output node is the exception**. It has fifteen-odd pins, and a field on ea
 The graph is compiled to a WGSL shader every time you change it, and the result is checked with the same compiler front end (naga) the GPU path uses — so a broken graph is *told to you*, not silently rendered as a fallback.
 
 - **The diagnostics strip** along the bottom of the graph panel lists every problem the latest compile produced. **Errors** (red ✕) mean the shader could not be built — the message is the compiler's own, with the generated-code location. **Warnings** (amber ⚠) mean the shader built but something you authored was approximated — for example declaring more than 32 distinct parameters, where the extra ones alias the last slot. The strip hides itself when there's nothing to say.
+- **Type-checked wires.** Dragging a cable onto a pin whose type can't convert (say, a texture into a number, or a bool into a float) is **refused on the spot**, with the reason in the diagnostics strip. Numbers, vectors, and colors still convert freely in every direction.
 - **A broken material fails loudly.** Saving always writes both the `.material` and the `.wgsl`, even when the shader will not compile — so the mesh stops drawing and the strip tells you why, instead of the graph and the render quietly disagreeing. Fix the errors and it comes back on the next save.
 
 ### The Surface Output node
