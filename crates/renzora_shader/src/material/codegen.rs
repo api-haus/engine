@@ -316,7 +316,17 @@ impl<'a> Ctx<'a> {
         if let Some(def) = nodes::node_def(&node.node_type) {
             let pins = (def.pins)();
             if let Some(pin) = pins.iter().find(|p| p.name == pin_name) {
-                return pin.default_value.to_wgsl();
+                let expr = pin.default_value.to_wgsl();
+                // Coerce a default whose type doesn't match the declared pin
+                // type, same as the override path above. `vector/reflect`'s
+                // `incident` pin is Vec3 but declares no default — its
+                // `PinValue::None` renders as a scalar `0.0`, and
+                // `reflect(0.0, vec3)` is a hard naga rejection.
+                let vt = pin.default_value.pin_type();
+                if vt != pin.pin_type {
+                    return graph::PinType::cast_expr(vt, pin.pin_type, &expr);
+                }
+                return expr;
             }
         }
 
