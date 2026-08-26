@@ -28,6 +28,8 @@ use crate::widgets::text_input::{text_input, EmberTextInput};
 use crate::widgets::Tone;
 
 const NODE_W: f32 = 160.0;
+/// Corner radius of a node's outer edge; the status halo offsets from it.
+const NODE_RADIUS: f32 = 6.0;
 const HEAD_H: f32 = 26.0;
 const ROW_H: f32 = 22.0;
 const WIRE_W: f32 = 2.5;
@@ -334,7 +336,7 @@ pub fn graph_node_view(
                 // Constant border: selection is drawn as an `Outline` (below), which
                 // doesn't affect layout — so selecting never nudges the node.
                 border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(6.0)),
+                border_radius: BorderRadius::all(Val::Px(NODE_RADIUS)),
                 ..default()
             },
             BackgroundColor(rgb(hover_bg())),
@@ -491,26 +493,32 @@ pub fn graph_node_view(
 /// The ring drawn a few px clear of an unhealthy node, doubling its border so the
 /// state reads across a zoomed-out graph where a 1px edge is a hairline.
 ///
-/// It carries its own `Outline` rather than the node's, because selection already
-/// owns that one and a node can be broken *and* selected. An `Outline` — not a
-/// bordered box drawn a few px larger — because a 1px *border* on a rounded rect
-/// renders visibly fatter around the corner arcs than along the straight runs,
-/// while an outline is one even stroke. The child is stretched over the node's
-/// border box (hence the −1px insets, clearing the node's own border) and is
-/// `Pickable::IGNORE`, so the overhang can't swallow a click outside the node.
+/// It's an ordinary bordered box, not the node's `Outline` — selection already
+/// owns that one, and an `Outline`'s quad and corner radii are Bevy's to derive
+/// rather than ours to author, which is what made it the only thing in the graph
+/// to smear when the canvas is zoomed and the node meets the viewport's clip
+/// edge. Every other rounded box in the editor is a bordered node and none of
+/// them do that.
+///
+/// Insets inflate the node's *border* box (hence the extra 1px for the node's own
+/// border) by exactly the gap plus the stroke, and the radius is the node's own
+/// plus the same, so the ring is a true parallel offset. `Pickable::IGNORE`, so
+/// the overhang can't swallow a click that landed outside the node.
 fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
+    let inset = -(1.0 + HALO_GAP + HALO_W);
     commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(-1.0),
-                top: Val::Px(-1.0),
-                right: Val::Px(-1.0),
-                bottom: Val::Px(-1.0),
-                border_radius: BorderRadius::all(Val::Px(6.0)),
+                left: Val::Px(inset),
+                top: Val::Px(inset),
+                right: Val::Px(inset),
+                bottom: Val::Px(inset),
+                border: UiRect::all(Val::Px(HALO_W)),
+                border_radius: BorderRadius::all(Val::Px(NODE_RADIUS + HALO_GAP + HALO_W)),
                 ..default()
             },
-            Outline { width: Val::Px(HALO_W), offset: Val::Px(HALO_GAP), color: rgb(tone.color()) },
+            BorderColor::all(rgb(tone.color())),
             bevy::ui::FocusPolicy::Pass,
             Pickable::IGNORE,
             Name::new("ngv-node-halo"),
