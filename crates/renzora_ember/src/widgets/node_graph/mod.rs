@@ -40,7 +40,7 @@ pub(crate) const MIN_ZOOM: f32 = 0.25;
 pub(crate) const MAX_ZOOM: f32 = 1.5;
 
 mod view;
-pub use view::{graph_comment_view, graph_node_view, graph_wire_view, node_graph_view, ConnectDrag, GraphEdit, NodeGraphHandle, NodeGraphView};
+pub use view::{graph_comment_view, graph_node_view, graph_wire_view, node_graph_view, ConnectDrag, GraphEdit, NodeGraphHandle, NodeGraphView, NodeStatus};
 
 /// Registers the cable material + shader and the node-graph systems.
 pub(crate) struct NodeGraphPlugin;

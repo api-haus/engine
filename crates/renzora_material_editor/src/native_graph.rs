@@ -25,7 +25,7 @@ use renzora_ember::reactive::{KeyedSnapshot};
 use renzora_ember::reactive::Rx;
 use renzora_ember::reactive::tracked::{bind_2way, bind_display, keyed_list};
 use renzora_ember::theme::*;
-use renzora_ember::widgets::{dropdown, graph_comment_view, graph_node_view, graph_wire_view, icon_button, icon_label_button, node_graph_view, search_menu, GraphEdit, NodeGraphView, SearchEntry, Tone};
+use renzora_ember::widgets::{dropdown, graph_comment_view, graph_node_view, graph_wire_view, icon_button, icon_label_button, node_graph_view, search_menu, GraphEdit, NodeGraphView, NodeStatus, SearchEntry, Tone};
 use renzora_shader::material::codegen;
 use renzora_shader::material::graph::{
     resolve_math_ranks, resolved_pin_type, MaterialGraph, PinDir, PinTemplate, PinType, PinValue,
@@ -524,17 +524,8 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
                 .iter()
                 .map(|(pin, wanted)| wanted.then(|| crate::pin_editors::pin_editor(c, f, n.id, pin)))
                 .collect();
-            let status = n.problem.as_ref().map(|(tone, _)| *tone);
-            let node = graph_node_view(c, f, canvas, viewport, n.id, &n.title, n.color, &n.inputs, &n.outputs, n.pos[0], n.pos[1], n.selected, status, n.thumb.clone(), &editors, header);
-            if let Some((_, message)) = &n.problem {
-                c.entity(node).insert((
-                    renzora_ember::widgets::HoverTooltip::new(message.clone()),
-                    renzora_ember::widgets::TooltipAnchorAbove,
-                    // naga renders its diagnostics as column-aligned ASCII.
-                    renzora_ember::widgets::TooltipMono,
-                ));
-            }
-            node
+            let status = n.problem.clone().map(|(tone, message)| NodeStatus { tone, message });
+            graph_node_view(c, f, canvas, viewport, n.id, &n.title, n.color, &n.inputs, &n.outputs, n.pos[0], n.pos[1], n.selected, status, n.thumb.clone(), &editors, header)
         }),
     }
 }

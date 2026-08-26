@@ -45,6 +45,11 @@ const HALO_GAP: f32 = 4.0;
 /// ~1.5x as far through a corner's 45-degree stretch as it does on a straight
 /// run — so a hairline halo reads as lumpy, and the wider ring does not.
 const HALO_W: f32 = 2.0;
+/// Side of the status badge pinned to an unhealthy node's corner, and how far it
+/// hangs past that corner. The peek clears the halo (gap + stroke) so the badge
+/// reads as pinned *on* the ring rather than trapped inside it.
+const BADGE: f32 = 16.0;
+const BADGE_PEEK: f32 = 7.0;
 /// Base `GlobalZIndex` for nodes; the selected node is bumped to `NODE_Z + 1` so
 /// it draws and picks above overlapping peers (see [`ngv_apply_selection`]).
 const NODE_Z: i32 = 5;
@@ -150,6 +155,16 @@ pub struct ConnectDrag {
     pub pin: String,
     pub is_output: bool,
     pub color: (u8, u8, u8),
+}
+
+/// A graph node's health, as the editor that owns the graph reports it.
+///
+/// The tone paints the node's border and its corner badge; the message rides the
+/// badge's tooltip, set monospaced because what lands here is a compiler
+/// diagnostic and those are column-aligned.
+pub struct NodeStatus {
+    pub tone: Tone,
+    pub message: String,
 }
 
 /// Entities the caller mounts content into.
@@ -312,8 +327,8 @@ pub fn graph_node_view(
     x: f32,
     y: f32,
     selected: bool,
-    // Health: recolours the border and badges the title bar. The description is the caller's to attach (a `HoverTooltip`).
-    status: Option<Tone>,
+    // Health: recolours the border, rings the node, and pins a badge to its corner.
+    status: Option<NodeStatus>,
     thumbnail: Option<Handle<Image>>,
     // Optional inline value editor entity per input (index-aligned with `inputs`);
     // rendered on its own row under the pin. Pass `&[]` for none.
@@ -341,7 +356,7 @@ pub fn graph_node_view(
             },
             BackgroundColor(rgb(hover_bg())),
             // Status owns the border, selection owns the outline — so a selected broken node still reads as broken.
-            BorderColor::all(rgb(status.map_or_else(tree_line, Tone::color))),
+            BorderColor::all(rgb(status.as_ref().map_or_else(tree_line, |s| s.tone.color()))),
             Outline {
                 width: Val::Px(2.0),
                 offset: Val::Px(1.0),
@@ -357,8 +372,8 @@ pub fn graph_node_view(
             Name::new("ngv-node"),
         ))
         .id();
-    if let Some(tone) = status {
-        let halo = node_status_halo(commands, tone);
+    if let Some(s) = &status {
+        let halo = node_status_halo(commands, s.tone);
         commands.entity(node).add_child(halo);
     }
     let title_bar = commands
@@ -383,10 +398,6 @@ pub fn graph_node_view(
             bevy::ui::FocusPolicy::Pass,
         ))
         .id();
-    if let Some(tone) = status {
-        let badge = node_status_badge(commands, fonts, tone);
-        commands.entity(title_bar).add_child(badge);
-    }
     commands.entity(title_bar).add_child(label);
     if let Some(ctrl) = header_control {
         commands.entity(title_bar).add_child(ctrl);
@@ -487,6 +498,11 @@ pub fn graph_node_view(
             .id();
         commands.entity(out_col).add_child(thumb);
     }
+    // Last child, so the badge paints over the halo it punches through.
+    if let Some(s) = status {
+        let badge = node_status_badge(commands, fonts, s);
+        commands.entity(node).add_child(badge);
+    }
     node
 }
 
@@ -526,30 +542,49 @@ fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
         .id()
 }
 
-/// The status glyph at the head of a node's title bar. It sits on a dark chip
-/// rather than bare on the header, because a node's header colour is its
-/// *category* colour — the output node's is already red, and a red warning glyph
-/// laid straight onto it disappears. Click-through, so it never eats a header drag.
-fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, tone: Tone) -> Entity {
+/// The badge pinned to an unhealthy node's top-right corner, half outside it.
+///
+/// It hangs off the corner rather than sitting in the title bar because a node's
+/// header colour is its *category* colour — the output node's is already red — so
+/// a status mark laid onto the header competes with it, while one that peeks past
+/// the edge onto the canvas reads at a glance and survives a header full of the
+/// caller's own controls.
+///
+/// It, not the node, carries the diagnostic: hovering the body of a node you are
+/// working in should not keep throwing a wall of compiler output over the graph.
+fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: NodeStatus) -> Entity {
     let chip = commands
         .spawn((
             Node {
-                width: Val::Px(18.0),
-                height: Val::Px(18.0),
-                flex_shrink: 0.0,
+                position_type: PositionType::Absolute,
+                right: Val::Px(-BADGE_PEEK),
+                top: Val::Px(-BADGE_PEEK),
+                width: Val::Px(BADGE),
+                height: Val::Px(BADGE),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.28)),
-            bevy::ui::FocusPolicy::Pass,
-            Pickable::IGNORE,
+            BackgroundColor(rgb(status.tone.color())),
+            Interaction::default(),
+            crate::widgets::HoverTooltip::new(status.message),
+            crate::widgets::TooltipAnchorAbove,
+            crate::widgets::TooltipMono,
+            crate::cursor_icon::HoverCursor(SystemCursorIcon::Help),
             Name::new("ngv-node-status"),
         ))
         .id();
-    let icon = icon_text(commands, &fonts.phosphor, tone.icon(), tone.color(), 12.0);
-    commands.entity(chip).add_child(icon);
+    let mark = commands
+        .spawn((
+            Text::new("!"),
+            ui_font(&fonts.ui, 12.0),
+            TextColor(rgb(on_accent())),
+            bevy::ui::FocusPolicy::Pass,
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(chip).add_child(mark);
     chip
 }
 
