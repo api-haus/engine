@@ -48,8 +48,8 @@ const HALO_W: f32 = 2.0;
 /// Side of the status badge pinned to an unhealthy node's corner, and how far it
 /// hangs past that corner. The peek clears the halo (gap + stroke) so the badge
 /// reads as pinned *on* the ring rather than trapped inside it.
-const BADGE: f32 = 16.0;
-const BADGE_PEEK: f32 = 7.0;
+const BADGE: f32 = 22.0;
+const BADGE_PEEK: f32 = 9.0;
 /// Base `GlobalZIndex` for nodes; the selected node is bumped to `NODE_Z + 1` so
 /// it draws and picks above overlapping peers (see [`ngv_apply_selection`]).
 const NODE_Z: i32 = 5;
@@ -563,10 +563,14 @@ fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: NodeSt
                 height: Val::Px(BADGE),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
+                // Ringed in the canvas colour: the badge straddles the node's own
+                // header, which for some categories is red too.
+                border: UiRect::all(Val::Px(1.0)),
                 border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(rgb(status.tone.color())),
+            BorderColor::all(rgb(window_bg())),
             Interaction::default(),
             crate::widgets::HoverTooltip::new(status.message),
             crate::widgets::TooltipAnchorAbove,
@@ -578,7 +582,7 @@ fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: NodeSt
     let mark = commands
         .spawn((
             Text::new("!"),
-            ui_font(&fonts.ui, 12.0),
+            ui_font(&fonts.ui, 16.0),
             TextColor(rgb(on_accent())),
             bevy::ui::FocusPolicy::Pass,
             Pickable::IGNORE,
