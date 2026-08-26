@@ -530,6 +530,8 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
                 c.entity(node).insert((
                     renzora_ember::widgets::HoverTooltip::new(message.clone()),
                     renzora_ember::widgets::TooltipAnchorAbove,
+                    // naga renders its diagnostics as column-aligned ASCII.
+                    renzora_ember::widgets::TooltipMono,
                 ));
             }
             node

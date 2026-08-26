@@ -29,6 +29,14 @@ impl HoverTooltip {
 #[derive(Component)]
 pub struct TooltipAnchorAbove;
 
+/// Set the bubble in the monospace face and widen it. For text whose *columns*
+/// carry meaning — a compiler diagnostic's gutter, its source line and the
+/// carets under the offending span only line up if every glyph is one advance
+/// wide, and the proportional face collapses the runs of spaces they are built
+/// from.
+#[derive(Component)]
+pub struct TooltipMono;
+
 /// Legacy wrapper API: wraps `target` in a hoverable node carrying a
 /// [`HoverTooltip`]. Prefer inserting `HoverTooltip` directly on widgets that
 /// already track `Interaction`.
@@ -66,6 +74,10 @@ const OFFSET: Vec2 = Vec2::new(14.0, 20.0);
 /// The bubble's maximum width — long diagnostics wrap instead of running off
 /// the window.
 const MAX_WIDTH: f32 = 360.0;
+/// The cap for a [`TooltipMono`] bubble. ~95 columns at 11px JetBrains Mono, so
+/// a compiler diagnostic fits on one line and keeps its alignment; anything
+/// longer still wraps rather than running off the window.
+const MONO_MAX_WIDTH: f32 = 640.0;
 
 pub(crate) fn hover_tooltip_system(
     mut commands: Commands,
@@ -80,11 +92,13 @@ pub(crate) fn hover_tooltip_system(
         Option<&ComputedNode>,
         Option<&GlobalTransform>,
         Has<TooltipAnchorAbove>,
+        Has<TooltipMono>,
     )>,
     mut root_q: Query<(Entity, &mut Node, &ComputedNode), With<HoverTipRoot>>,
-    mut text_q: Query<&mut Text, With<HoverTipText>>,
+    mut text_q: Query<(&mut Text, &mut TextFont), With<HoverTipText>>,
     mut state: Local<Option<(Entity, f32)>>,
     mut last_cam: Local<Option<Option<Entity>>>,
+    mut last_mono: Local<Option<bool>>,
 ) {
     let hide = |root_q: &mut Query<(Entity, &mut Node, &ComputedNode), With<HoverTipRoot>>| {
         if let Ok((_, mut node, _)) = root_q.single_mut() {
@@ -96,14 +110,14 @@ pub(crate) fn hover_tooltip_system(
 
     let hovered = tips
         .iter()
-        .find(|(_, i, _, _, _, _)| matches!(i, Interaction::Hovered | Interaction::Pressed));
+        .find(|(_, i, ..)| matches!(i, Interaction::Hovered | Interaction::Pressed));
     // The window the cursor is in — hover only fires there, so the tooltip's
     // coordinates and rendering target both follow it (a widget in a floating
     // dock window shows its tooltip in that window, not the primary).
     let cursor_win = windows
         .iter()
         .find_map(|(e, w)| w.cursor_position().map(|c| (e, w, c)));
-    let (Some((widget, _, tip, widget_cn, widget_tf, anchor_above)), Some((win_entity, win, cursor))) = (hovered, cursor_win) else {
+    let (Some((widget, _, tip, widget_cn, widget_tf, anchor_above, mono)), Some((win_entity, win, cursor))) = (hovered, cursor_win) else {
         *state = None;
         hide(&mut root_q);
         return;
@@ -133,7 +147,7 @@ pub(crate) fn hover_tooltip_system(
                     position_type: PositionType::Absolute,
                     left: Val::Px(cursor.x + OFFSET.x),
                     top: Val::Px(cursor.y + OFFSET.y),
-                    max_width: Val::Px(MAX_WIDTH),
+                    max_width: Val::Px(if mono { MONO_MAX_WIDTH } else { MAX_WIDTH }),
                     padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
                     border: UiRect::all(Val::Px(1.0)),
                     border_radius: BorderRadius::all(Val::Px(4.0)),
@@ -153,7 +167,7 @@ pub(crate) fn hover_tooltip_system(
         let txt = commands
             .spawn((
                 Text::new(tip.0.clone()),
-                ui_font(&fonts.ui, 11.0),
+                ui_font(if mono { &fonts.mono } else { &fonts.ui }, 11.0),
                 TextColor(rgb(text_primary())),
                 bevy::text::TextLayout::linebreak(bevy::text::LineBreak::WordBoundary),
                 Pickable::IGNORE,
@@ -161,12 +175,22 @@ pub(crate) fn hover_tooltip_system(
             ))
             .id();
         commands.entity(root).add_child(txt);
+        *last_mono = Some(mono);
         return;
     };
 
-    if let Ok(mut text) = text_q.single_mut() {
+    if let Ok((mut text, mut font)) = text_q.single_mut() {
         if text.0 != tip.0 {
             text.0.clone_from(&tip.0);
+        }
+        // One shared bubble serves every widget, so the face and the width cap
+        // have to follow whichever kind of tip is showing now.
+        if *last_mono != Some(mono) {
+            *last_mono = Some(mono);
+            if let Some(fonts) = fonts.as_ref() {
+                *font = ui_font(if mono { &fonts.mono } else { &fonts.ui }, 11.0);
+            }
+            node.max_width = Val::Px(if mono { MONO_MAX_WIDTH } else { MAX_WIDTH });
         }
     }
 
