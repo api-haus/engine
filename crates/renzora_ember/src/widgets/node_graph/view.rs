@@ -486,25 +486,26 @@ pub fn graph_node_view(
 /// The ring drawn a few px clear of an unhealthy node, doubling its border so the
 /// state reads across a zoomed-out graph where a 1px edge is a hairline.
 ///
-/// It's an out-of-flow child rather than the node's `Outline`, because selection
-/// already owns that and a node can be broken *and* selected. Sized off the
-/// node's padding box with negative insets, so it never touches layout — and
-/// `Pickable::IGNORE`, so the halo's overhang can't swallow a click landing
-/// outside the node.
+/// It carries its own `Outline` rather than the node's, because selection already
+/// owns that one and a node can be broken *and* selected. An `Outline` — not a
+/// bordered box drawn a few px larger — because a 1px *border* on a rounded rect
+/// renders visibly fatter around the corner arcs than along the straight runs,
+/// while an outline is one even stroke. The child is stretched over the node's
+/// border box (hence the −1px insets, clearing the node's own border) and is
+/// `Pickable::IGNORE`, so the overhang can't swallow a click outside the node.
 fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
     commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(-HALO_GAP),
-                top: Val::Px(-HALO_GAP),
-                right: Val::Px(-HALO_GAP),
-                bottom: Val::Px(-HALO_GAP),
-                border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(6.0 + HALO_GAP)),
+                left: Val::Px(-1.0),
+                top: Val::Px(-1.0),
+                right: Val::Px(-1.0),
+                bottom: Val::Px(-1.0),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             },
-            BorderColor::all(rgb(tone.color())),
+            Outline { width: Val::Px(1.0), offset: Val::Px(HALO_GAP), color: rgb(tone.color()) },
             bevy::ui::FocusPolicy::Pass,
             Pickable::IGNORE,
             Name::new("ngv-node-halo"),
