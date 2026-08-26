@@ -498,10 +498,18 @@ pub fn graph_node_view(
             .id();
         commands.entity(out_col).add_child(thumb);
     }
-    // Last child, so the badge paints over the halo it punches through.
     if let Some(s) = status {
-        let badge = node_status_badge(commands, fonts, s);
+        let badge = node_status_badge(commands, fonts, &s);
         commands.entity(node).add_child(badge);
+        // The badge is only the flag. The whole node is the hover target too, so
+        // reading the diagnostic never means aiming at a 22px square — and the
+        // badge sits outside the node's own rect, so it has to carry its own copy
+        // rather than passing the hover through to a parent it doesn't overlap.
+        commands.entity(node).insert((
+            crate::widgets::HoverTooltip::new(s.message),
+            crate::widgets::TooltipAnchorAbove,
+            crate::widgets::TooltipMono,
+        ));
     }
     node
 }
@@ -549,10 +557,7 @@ fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
 /// status mark laid onto the header competes with it, while one clear of the node
 /// altogether reads at a glance and survives a header full of the caller's own
 /// controls.
-///
-/// It, not the node, carries the diagnostic: hovering the body of a node you are
-/// working in should not keep throwing a wall of compiler output over the graph.
-fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: NodeStatus) -> Entity {
+fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: &NodeStatus) -> Entity {
     let chip = commands
         .spawn((
             Node {
@@ -570,7 +575,7 @@ fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: NodeSt
             },
             BackgroundColor(rgb(status.tone.color())),
             Interaction::default(),
-            crate::widgets::HoverTooltip::new(status.message),
+            crate::widgets::HoverTooltip::new(status.message.clone()),
             crate::widgets::TooltipAnchorAbove,
             crate::widgets::TooltipMono,
             crate::cursor_icon::HoverCursor(SystemCursorIcon::Help),
