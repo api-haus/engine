@@ -37,7 +37,12 @@ const WIRE_W: f32 = 2.5;
 const SLOT_W: f32 = 30.0;
 /// Gap between an unhealthy node's own border and its status halo. Clears the
 /// 2px-at-1px-offset selection outline, so the two never touch.
-const HALO_GAP: f32 = 5.0;
+const HALO_GAP: f32 = 4.0;
+/// Halo stroke. 2px, not the 1px the node's own border uses: Bevy renders a 1px
+/// rounded stroke as a 2px triangular AA ramp, which along a screen row spans
+/// ~1.5x as far through a corner's 45-degree stretch as it does on a straight
+/// run — so a hairline halo reads as lumpy, and the wider ring does not.
+const HALO_W: f32 = 2.0;
 /// Base `GlobalZIndex` for nodes; the selected node is bumped to `NODE_Z + 1` so
 /// it draws and picks above overlapping peers (see [`ngv_apply_selection`]).
 const NODE_Z: i32 = 5;
@@ -505,7 +510,7 @@ fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
                 border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             },
-            Outline { width: Val::Px(1.0), offset: Val::Px(HALO_GAP), color: rgb(tone.color()) },
+            Outline { width: Val::Px(HALO_W), offset: Val::Px(HALO_GAP), color: rgb(tone.color()) },
             bevy::ui::FocusPolicy::Pass,
             Pickable::IGNORE,
             Name::new("ngv-node-halo"),
