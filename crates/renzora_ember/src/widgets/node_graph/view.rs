@@ -35,6 +35,9 @@ const WIRE_W: f32 = 2.5;
 /// dot). Kept tight to the dot so the rest of the label is free to drag the node;
 /// it's an absolute overlay, so it never shifts the label.
 const SLOT_W: f32 = 30.0;
+/// Gap between an unhealthy node's own border and its status halo. Clears the
+/// 2px-at-1px-offset selection outline, so the two never touch.
+const HALO_GAP: f32 = 5.0;
 /// Base `GlobalZIndex` for nodes; the selected node is bumped to `NODE_Z + 1` so
 /// it draws and picks above overlapping peers (see [`ngv_apply_selection`]).
 const NODE_Z: i32 = 5;
@@ -347,6 +350,10 @@ pub fn graph_node_view(
             Name::new("ngv-node"),
         ))
         .id();
+    if let Some(tone) = status {
+        let halo = node_status_halo(commands, tone);
+        commands.entity(node).add_child(halo);
+    }
     let title_bar = commands
         .spawn((
             Node { width: Val::Percent(100.0), height: Val::Px(HEAD_H), align_items: AlignItems::Center, column_gap: Val::Px(4.0), padding: UiRect::horizontal(Val::Px(8.0)), border_radius: BorderRadius::top(Val::Px(5.0)), ..default() },
@@ -474,6 +481,35 @@ pub fn graph_node_view(
         commands.entity(out_col).add_child(thumb);
     }
     node
+}
+
+/// The ring drawn a few px clear of an unhealthy node, doubling its border so the
+/// state reads across a zoomed-out graph where a 1px edge is a hairline.
+///
+/// It's an out-of-flow child rather than the node's `Outline`, because selection
+/// already owns that and a node can be broken *and* selected. Sized off the
+/// node's padding box with negative insets, so it never touches layout — and
+/// `Pickable::IGNORE`, so the halo's overhang can't swallow a click landing
+/// outside the node.
+fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(-HALO_GAP),
+                top: Val::Px(-HALO_GAP),
+                right: Val::Px(-HALO_GAP),
+                bottom: Val::Px(-HALO_GAP),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(6.0 + HALO_GAP)),
+                ..default()
+            },
+            BorderColor::all(rgb(tone.color())),
+            bevy::ui::FocusPolicy::Pass,
+            Pickable::IGNORE,
+            Name::new("ngv-node-halo"),
+        ))
+        .id()
 }
 
 /// The status glyph at the head of a node's title bar. It sits on a dark chip
