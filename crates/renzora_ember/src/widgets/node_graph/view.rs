@@ -45,11 +45,11 @@ const HALO_GAP: f32 = 4.0;
 /// ~1.5x as far through a corner's 45-degree stretch as it does on a straight
 /// run — so a hairline halo reads as lumpy, and the wider ring does not.
 const HALO_W: f32 = 2.0;
-/// Side of the status badge pinned to an unhealthy node's corner, and how far it
-/// hangs past that corner. The peek clears the halo (gap + stroke) so the badge
-/// reads as pinned *on* the ring rather than trapped inside it.
+/// Side of the status badge that flags an unhealthy node, and the clear space
+/// between the node's edge and it. The gap clears the halo (gap + stroke), so
+/// the badge sits on open canvas beside the node rather than on top of it.
 const BADGE: f32 = 22.0;
-const BADGE_PEEK: f32 = 9.0;
+const BADGE_GAP: f32 = 10.0;
 /// Base `GlobalZIndex` for nodes; the selected node is bumped to `NODE_Z + 1` so
 /// it draws and picks above overlapping peers (see [`ngv_apply_selection`]).
 const NODE_Z: i32 = 5;
@@ -542,13 +542,13 @@ fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
         .id()
 }
 
-/// The badge pinned to an unhealthy node's top-right corner, half outside it.
+/// The badge flagging an unhealthy node, on open canvas beside its title bar.
 ///
-/// It hangs off the corner rather than sitting in the title bar because a node's
-/// header colour is its *category* colour — the output node's is already red — so
-/// a status mark laid onto the header competes with it, while one that peeks past
-/// the edge onto the canvas reads at a glance and survives a header full of the
-/// caller's own controls.
+/// It sits outside the node rather than in the title bar because a node's header
+/// colour is its *category* colour — the output node's is already red — so a
+/// status mark laid onto the header competes with it, while one clear of the node
+/// altogether reads at a glance and survives a header full of the caller's own
+/// controls.
 ///
 /// It, not the node, carries the diagnostic: hovering the body of a node you are
 /// working in should not keep throwing a wall of compiler output over the graph.
@@ -557,20 +557,18 @@ fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: NodeSt
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                right: Val::Px(-BADGE_PEEK),
-                top: Val::Px(-BADGE_PEEK),
+                // Insets are measured from the padding box, so the +1 is the
+                // node's own border; centred on the title bar beside it.
+                right: Val::Px(-(BADGE + BADGE_GAP + 1.0)),
+                top: Val::Px((HEAD_H - BADGE) * 0.5),
                 width: Val::Px(BADGE),
                 height: Val::Px(BADGE),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                // Ringed in the canvas colour: the badge straddles the node's own
-                // header, which for some categories is red too.
-                border: UiRect::all(Val::Px(1.0)),
                 border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(rgb(status.tone.color())),
-            BorderColor::all(rgb(window_bg())),
             Interaction::default(),
             crate::widgets::HoverTooltip::new(status.message),
             crate::widgets::TooltipAnchorAbove,
