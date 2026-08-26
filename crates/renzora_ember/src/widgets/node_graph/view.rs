@@ -25,6 +25,7 @@ use crate::stacking::{ZTier, ZTierSet};
 use crate::font::{icon_text, ui_font, EmberFonts};
 use crate::theme::*;
 use crate::widgets::text_input::{text_input, EmberTextInput};
+use crate::widgets::Tone;
 
 const NODE_W: f32 = 160.0;
 const HEAD_H: f32 = 26.0;
@@ -301,6 +302,8 @@ pub fn graph_node_view(
     x: f32,
     y: f32,
     selected: bool,
+    // Health: recolours the border and badges the title bar. The description is the caller's to attach (a `HoverTooltip`).
+    status: Option<Tone>,
     thumbnail: Option<Handle<Image>>,
     // Optional inline value editor entity per input (index-aligned with `inputs`);
     // rendered on its own row under the pin. Pass `&[]` for none.
@@ -327,7 +330,8 @@ pub fn graph_node_view(
                 ..default()
             },
             BackgroundColor(rgb(hover_bg())),
-            BorderColor::all(rgb(tree_line())),
+            // Status owns the border, selection owns the outline — so a selected broken node still reads as broken.
+            BorderColor::all(rgb(status.map_or_else(tree_line, Tone::color))),
             Outline {
                 width: Val::Px(2.0),
                 offset: Val::Px(1.0),
@@ -365,6 +369,10 @@ pub fn graph_node_view(
             bevy::ui::FocusPolicy::Pass,
         ))
         .id();
+    if let Some(tone) = status {
+        let badge = node_status_badge(commands, fonts, tone);
+        commands.entity(title_bar).add_child(badge);
+    }
     commands.entity(title_bar).add_child(label);
     if let Some(ctrl) = header_control {
         commands.entity(title_bar).add_child(ctrl);
@@ -466,6 +474,33 @@ pub fn graph_node_view(
         commands.entity(out_col).add_child(thumb);
     }
     node
+}
+
+/// The status glyph at the head of a node's title bar. It sits on a dark chip
+/// rather than bare on the header, because a node's header colour is its
+/// *category* colour — the output node's is already red, and a red warning glyph
+/// laid straight onto it disappears. Click-through, so it never eats a header drag.
+fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, tone: Tone) -> Entity {
+    let chip = commands
+        .spawn((
+            Node {
+                width: Val::Px(18.0),
+                height: Val::Px(18.0),
+                flex_shrink: 0.0,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.28)),
+            bevy::ui::FocusPolicy::Pass,
+            Pickable::IGNORE,
+            Name::new("ngv-node-status"),
+        ))
+        .id();
+    let icon = icon_text(commands, &fonts.phosphor, tone.icon(), tone.color(), 12.0);
+    commands.entity(chip).add_child(icon);
+    chip
 }
 
 /// A pin row: a click-through label, plus a **connection slot** (the interactive

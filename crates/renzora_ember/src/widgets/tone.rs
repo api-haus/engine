@@ -3,7 +3,7 @@
 use crate::theme::*;
 
 /// Semantic tone for feedback components.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Tone {
     Neutral,
     Info,

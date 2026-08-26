@@ -288,7 +288,7 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
                     }
                 })
                 .collect();
-            graph_node_view(c, f, canvas, viewport, *id, title, *color, ins, outs, pos[0], pos[1], *selected, None, &editors, None)
+            graph_node_view(c, f, canvas, viewport, *id, title, *color, ins, outs, pos[0], pos[1], *selected, None, None, &editors, None)
         }),
     }
 }

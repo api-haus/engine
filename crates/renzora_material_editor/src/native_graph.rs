@@ -14,6 +14,7 @@ use bevy::ecs::world::CommandQueue;
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, RelativeCursorPosition, UiTransform};
 
+use renzora::content_problems::{ContentProblem, ProblemSeverity};
 use renzora::core::keybindings::KeyBinding;
 use renzora::core::CurrentProject;
 use renzora_editor_framework::{AppEditorExt, AssetDragPayload, DocTabKind, EditorContext, EditorSelection, ShortcutEntry, SplashState};
@@ -24,7 +25,7 @@ use renzora_ember::reactive::{KeyedSnapshot};
 use renzora_ember::reactive::Rx;
 use renzora_ember::reactive::tracked::{bind_2way, bind_display, keyed_list};
 use renzora_ember::theme::*;
-use renzora_ember::widgets::{dropdown, graph_comment_view, graph_node_view, graph_wire_view, icon_button, icon_label_button, node_graph_view, search_menu, GraphEdit, NodeGraphView, SearchEntry};
+use renzora_ember::widgets::{dropdown, graph_comment_view, graph_node_view, graph_wire_view, icon_button, icon_label_button, node_graph_view, search_menu, GraphEdit, NodeGraphView, SearchEntry, Tone};
 use renzora_shader::material::codegen;
 use renzora_shader::material::graph::{
     resolve_math_ranks, resolved_pin_type, MaterialGraph, PinDir, PinTemplate, PinType, PinValue,
@@ -413,9 +414,9 @@ struct NodeSnap {
     /// whether it should carry an inline value editor. See [`wants_editor`].
     in_specs: Vec<(PinTemplate, bool)>,
     /// The shader compiler's complaint about this node, if any — joined from
-    /// `ContentProblems` for the active material. Drives the header's warning
-    /// icon and the node's tooltip.
-    error: Option<String>,
+    /// `ContentProblems` for the active material. The tone drives the node's
+    /// errored look (red border + title-bar badge); the text is its tooltip.
+    problem: Option<(Tone, String)>,
 }
 
 /// Should this input pin show an inline value editor on the node?
@@ -487,16 +488,8 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
                     (rp, wants_editor(&s.graph, n, p))
                 })
                 .collect();
-            let error = active_path.zip(problems).and_then(|(path, problems)| {
-                let messages: Vec<&str> = problems
-                    .get(path)
-                    .iter()
-                    .filter(|p| p.node_id == Some(n.id))
-                    .map(|p| p.message.as_str())
-                    .collect();
-                (!messages.is_empty()).then(|| messages.join("\n"))
-            });
-            NodeSnap { id: n.id, title, color, pos: n.position, inputs, outputs, selected: sel == Some(n.id), tex_path, thumb, sample_idx, in_specs, error }
+            let problem = active_path.zip(problems).and_then(|(path, problems)| node_problem(problems.get(path), n.id));
+            NodeSnap { id: n.id, title, color, pos: n.position, inputs, outputs, selected: sel == Some(n.id), tex_path, thumb, sample_idx, in_specs, problem }
         })
         .collect();
     let items: Vec<(u64, u64)> = nodes
@@ -513,9 +506,9 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
             // per-input editor flags so wiring a pin makes its inline editor
             // disappear (and unwiring brings it back), the resolved pin type
             // so a latch swaps the editor widget, and the compile error so
-            // the warning icon appears when it lands and clears when it heals.
+            // the errored look appears when it lands and clears when it heals.
             let editors: Vec<(PinType, bool)> = n.in_specs.iter().map(|(p, e)| (p.pin_type, *e)).collect();
-            (&n.title, n.color, &n.inputs, &n.outputs, &n.tex_path, n.sample_idx, &editors, &n.error).hash(&mut h);
+            (&n.title, n.color, &n.inputs, &n.outputs, &n.tex_path, n.sample_idx, &editors, &n.problem).hash(&mut h);
             (k.finish(), h.finish())
         })
         .collect();
@@ -523,10 +516,7 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
         items,
         build: Box::new(move |c, f, i| {
             let n = &nodes[i];
-            let header = match (n.error.is_some(), n.sample_idx) {
-                (false, None) => None,
-                (has_error, sample) => Some(node_header_controls(c, f, n.id, has_error, sample)),
-            };
+            let header = n.sample_idx.map(|_| sample_switch_button(c, f, n.id));
             // Values are edited on the node itself — this is the only place they
             // live now, so `wants_editor` above decides which pins get one.
             let editors: Vec<Option<Entity>> = n
@@ -534,10 +524,11 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
                 .iter()
                 .map(|(pin, wanted)| wanted.then(|| crate::pin_editors::pin_editor(c, f, n.id, pin)))
                 .collect();
-            let node = graph_node_view(c, f, canvas, viewport, n.id, &n.title, n.color, &n.inputs, &n.outputs, n.pos[0], n.pos[1], n.selected, n.thumb.clone(), &editors, header);
-            if let Some(error) = &n.error {
+            let status = n.problem.as_ref().map(|(tone, _)| *tone);
+            let node = graph_node_view(c, f, canvas, viewport, n.id, &n.title, n.color, &n.inputs, &n.outputs, n.pos[0], n.pos[1], n.selected, status, n.thumb.clone(), &editors, header);
+            if let Some((_, message)) = &n.problem {
                 c.entity(node).insert((
-                    renzora_ember::widgets::HoverTooltip::new(error.clone()),
+                    renzora_ember::widgets::HoverTooltip::new(message.clone()),
                     renzora_ember::widgets::TooltipAnchorAbove,
                 ));
             }
@@ -546,29 +537,20 @@ fn node_snapshot(world: &Rx, canvas: Entity, viewport: Entity) -> KeyedSnapshot 
     }
 }
 
-/// The title bar's trailing controls: a red warning icon when the shader
-/// compiler has something to say about the node, plus the sample-variant
-/// caret when the node has one. One row entity, because the widget's header
-/// slot takes a single child.
-fn node_header_controls(commands: &mut Commands, fonts: &EmberFonts, node_id: u64, has_error: bool, sample_idx: Option<usize>) -> Entity {
-    let row = commands
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(4.0),
-            flex_shrink: 0.0,
-            ..default()
-        })
-        .id();
-    if has_error {
-        let icon = icon_text(commands, &fonts.phosphor, "warning", close_red(), 13.0);
-        commands.entity(row).add_child(icon);
+/// What the shader compiler said about one node: the worst severity among its
+/// problems, and every message joined. Severity is the *worst*, not the first —
+/// a node that is both wrong and merely suspect is wrong, and must not read as a
+/// warning because the warning happened to be recorded first.
+fn node_problem(problems: &[ContentProblem], node_id: u64) -> Option<(Tone, String)> {
+    let mine: Vec<&ContentProblem> = problems.iter().filter(|p| p.node_id == Some(node_id)).collect();
+    if mine.is_empty() {
+        return None;
     }
-    if sample_idx.is_some() {
-        let caret = sample_switch_button(commands, fonts, node_id);
-        commands.entity(row).add_child(caret);
-    }
-    row
+    let tone = match mine.iter().any(|p| p.severity == ProblemSeverity::Error) {
+        true => Tone::Error,
+        false => Tone::Warn,
+    };
+    Some((tone, mine.iter().map(|p| p.message.as_str()).collect::<Vec<_>>().join("\n")))
 }
 
 /// A small caret button for a texture-sample node's header. The node title already
@@ -1405,4 +1387,37 @@ fn sync_to_file(world: &mut World, path: String) {
     state.compile_errors = result.errors;
     state.graph = graph;
     state.edit_mode = MaterialEditMode::EditingFile { path };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn problem(severity: ProblemSeverity, message: &str, node_id: Option<u64>) -> ContentProblem {
+        ContentProblem { severity, message: message.to_string(), line: None, node_id }
+    }
+
+    /// A node the compiler never named is healthy, and stays healthy even while
+    /// the file it lives in is broken.
+    #[test]
+    fn a_node_with_no_problems_of_its_own_is_clean() {
+        let problems = [problem(ProblemSeverity::Error, "boom", Some(7)), problem(ProblemSeverity::Error, "unattributed", None)];
+        assert!(node_problem(&problems, 3).is_none());
+    }
+
+    /// The badge reports the *worst* severity, whatever order the problems were
+    /// recorded in — a node that is wrong must never read as merely suspect.
+    #[test]
+    fn an_error_outranks_a_warning_recorded_before_it() {
+        let problems = [problem(ProblemSeverity::Warning, "suspect", Some(1)), problem(ProblemSeverity::Error, "wrong", Some(1))];
+        let (tone, message) = node_problem(&problems, 1).expect("node 1 has problems");
+        assert_eq!(tone, Tone::Error);
+        assert_eq!(message, "suspect\nwrong");
+    }
+
+    #[test]
+    fn warnings_alone_stay_a_warning() {
+        let problems = [problem(ProblemSeverity::Warning, "suspect", Some(1))];
+        assert_eq!(node_problem(&problems, 1).map(|(t, _)| t), Some(Tone::Warn));
+    }
 }
