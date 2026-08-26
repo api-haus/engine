@@ -50,6 +50,9 @@ const HALO_W: f32 = 2.0;
 /// the badge sits on open canvas beside the node rather than on top of it.
 const BADGE: f32 = 22.0;
 const BADGE_GAP: f32 = 10.0;
+/// How wide an unhealthy node's diagnostic footer may push the node. ~75
+/// columns at 10px mono, which is where a compiler wraps its own output anyway.
+const DIAG_MAX_W: f32 = 480.0;
 /// Base `GlobalZIndex` for nodes; the selected node is bumped to `NODE_Z + 1` so
 /// it draws and picks above overlapping peers (see [`ngv_apply_selection`]).
 const NODE_Z: i32 = 5;
@@ -499,17 +502,12 @@ pub fn graph_node_view(
         commands.entity(out_col).add_child(thumb);
     }
     if let Some(s) = status {
+        // Last in flow, so the node grows a footer rather than the diagnostic
+        // floating somewhere the reader has to go looking for it.
+        let diag = crate::widgets::diagnostic_block(commands, fonts, &s.message, s.tone, DIAG_MAX_W);
+        commands.entity(node).add_child(diag);
         let badge = node_status_badge(commands, fonts, &s);
         commands.entity(node).add_child(badge);
-        // The badge is only the flag. The whole node is the hover target too, so
-        // reading the diagnostic never means aiming at a 22px square — and the
-        // badge sits outside the node's own rect, so it has to carry its own copy
-        // rather than passing the hover through to a parent it doesn't overlap.
-        commands.entity(node).insert((
-            crate::widgets::HoverTooltip::new(s.message),
-            crate::widgets::TooltipAnchorAbove,
-            crate::widgets::TooltipMono,
-        ));
     }
     node
 }
@@ -557,6 +555,11 @@ fn node_status_halo(commands: &mut Commands, tone: Tone) -> Entity {
 /// status mark laid onto the header competes with it, while one clear of the node
 /// altogether reads at a glance and survives a header full of the caller's own
 /// controls.
+///
+/// It keeps the tooltip even though the footer already spells the diagnostic
+/// out: the footer is inside the canvas and shrinks with the zoom, so on a
+/// graph zoomed out far enough to need the flag it is no longer readable, and
+/// the bubble is screen-space.
 fn node_status_badge(commands: &mut Commands, fonts: &EmberFonts, status: &NodeStatus) -> Entity {
     let chip = commands
         .spawn((

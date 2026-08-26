@@ -269,7 +269,7 @@ Only a **write** counts. Opening a `.wgsl`, reading it, or touching its timestam
 
 A graph can be well-formed and still produce WGSL the shader compiler rejects — most easily through a **Custom Code** node, whose contents nothing checks until the compiler sees them. The material then falls back to a plain surface in the viewport, and the compiler's errors show up in three places:
 
-- **On the node itself.** The offending node turns red — a red border, a second red ring drawn clear of it, and a red **!** badge on the canvas just to the right of its title bar. The double ring is what makes it findable in a graph zoomed far enough out that a single border is a hairline. Hover the node — or its badge — for the compiler's message. A node the compiler only *warns* about gets the same treatment in amber.
+- **On the node itself.** The offending node turns red — a red border, a second red ring drawn clear of it, and a red **!** badge on the canvas just to the right of its title bar. The double ring is what makes it findable in a graph zoomed far enough out that a single border is a hairline. The compiler's message is printed in full as a footer on the node: the severity, the location, the offending source line with the carets under it, and the notes, each coloured for what it is. Zoomed out too far to read it, hover the badge — that bubble is screen-space, so it stays legible at any zoom. A node the compiler only *warns* about gets the same treatment in amber.
 - **The Problems panel**, as a row per distinct error, listed against the `.material` file it came from. Click a row to jump to that file if you have it open.
 - **The console**, once per compile — not once per frame, so a broken material does not flood the log.
 

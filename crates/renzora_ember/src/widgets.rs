@@ -71,6 +71,7 @@ mod accordion;
 mod accent;
 mod card;
 mod decor;
+mod diagnostic;
 mod divider;
 mod tabs;
 
@@ -185,6 +186,7 @@ pub use accordion::*;
 pub use accent::*;
 pub use card::*;
 pub use decor::*;
+pub use diagnostic::*;
 pub use divider::*;
 pub use tabs::*;
 
