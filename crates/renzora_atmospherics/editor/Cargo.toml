@@ -8,6 +8,7 @@ description = "Editor-only half of renzora_atmospherics: the weatherscape author
 bevy = { workspace = true }
 renzora = { path = "../../renzora", default-features = false, features = ["editor"] }
 renzora_atmospherics = { path = ".." }
+bevy_atmospherics = { path = "../../../../crates/bevy_atmospherics" }
 
 [lints]
 workspace = true

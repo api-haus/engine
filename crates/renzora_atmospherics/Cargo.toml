@@ -11,5 +11,8 @@ renzora = { path = "../renzora", default-features = false }
 # reached by leaving the workspace: crates/renzora_atmospherics -> ../../../crates.
 bevy_atmospherics = { path = "../../../crates/bevy_atmospherics" }
 
+[dev-dependencies]
+renzora_engine = { path = "../renzora_engine" }
+
 [lints]
 workspace = true

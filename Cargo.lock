@@ -7327,6 +7327,7 @@ dependencies = [
  "bevy",
  "bevy_atmospherics",
  "renzora",
+ "renzora_engine",
 ]
 
 [[package]]
@@ -7334,6 +7335,7 @@ name = "renzora_atmospherics_editor"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_atmospherics",
  "renzora",
  "renzora_atmospherics",
 ]
