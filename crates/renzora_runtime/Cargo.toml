@@ -389,6 +389,8 @@ renzora_native_plugin = { path = "../renzora_native_plugin" }
 # entry here pointing at a directory that no longer exists stops cargo
 # loading the workspace, including to run the generator that would fix
 # it. If you hit that, delete the offending line below.
+renzora_atmospherics = { path = "../renzora_atmospherics" }
+renzora_graybox_terrain = { path = "../renzora_graybox_terrain" }
 renzora_net = { path = "../renzora_net" }
 renzora_rust_script = { path = "../renzora_rust_script" }
 # ── end generated ──

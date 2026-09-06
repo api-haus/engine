@@ -1,0 +1,15 @@
+[package]
+name = "renzora_atmospherics"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime host adapter for bevy_atmospherics. Editor tooling lives in the nested renzora_atmospherics_editor crate."
+
+[dependencies]
+bevy = { workspace = true }
+renzora = { path = "../renzora", default-features = false }
+# This engine tree is a submodule of the bevy_atmospherics checkout, and the rendering crate is
+# reached by leaving the workspace: crates/renzora_atmospherics -> ../../../crates.
+bevy_atmospherics = { path = "../../../crates/bevy_atmospherics" }
+
+[lints]
+workspace = true

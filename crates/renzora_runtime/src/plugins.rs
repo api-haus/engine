@@ -24,6 +24,7 @@ pub(crate) fn add_runtime_plugins(app: &mut App) {
     app.add_plugins(renzora_antialiasing::AntiAliasingPlugin::default());
     #[cfg(feature = "atmosphere")]
     app.add_plugins(renzora_atmosphere::AtmospherePlugin::default());
+    app.add_plugins(renzora_atmospherics::AtmosphericsPlugin::default());
     #[cfg(feature = "audio")]
     app.add_plugins(renzora_audio::AudioPlugin::default());
     #[cfg(feature = "audio")]
@@ -50,6 +51,7 @@ pub(crate) fn add_runtime_plugins(app: &mut App) {
     app.add_plugins(renzora_forward_decal::DecalPlugin::default());
     #[cfg(feature = "gaussian_splatting")]
     app.add_plugins(renzora_gaussian_splatting::GaussianSplatPlugin::default());
+    app.add_plugins(renzora_graybox_terrain::GrayboxTerrainPlugin::default());
     #[cfg(feature = "particles")]
     app.add_plugins(renzora_hanabi::HanabiParticlePlugin::default());
     #[cfg(feature = "lens_distortion")]

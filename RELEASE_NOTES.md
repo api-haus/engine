@@ -1,6 +1,9 @@
 <!-- r1-alpha7 -->
 
 ## Unreleased
+- feat(atmospherics): scaffold `renzora_atmospherics` (runtime), its nested
+  `renzora_atmospherics_editor`, and `renzora_graybox_terrain` as the host
+  adapters for bevy_atmospherics. Husks only: nothing renders yet.
 - feat(release): every nightly and release now refreshes the browser build at
   renzora.com/engine. The `website` job dispatches the tag to renzora/website,
   which pulls `web-wasm32.zip` onto the droplet and swaps it in behind a
