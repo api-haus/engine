@@ -2,7 +2,6 @@
 
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::prelude::*;
-use bevy_atmospherics::bauer::CloudModel;
 use bevy_atmospherics::{CloudReconstruction, SkyProbe, VolumetricClouds};
 use renzora::core::{EffectRouting, PrimaryViewportCamera, ViewportCamera};
 
@@ -46,12 +45,7 @@ pub(crate) fn install(
             continue;
         }
         commands.entity(target).insert((
-            // The host renders Bauer only (bevy_atmospherics `docs/spec/54-graybox-terrain.md`,
-            // "Running the scene"); the camera's default is the legacy noise model.
-            VolumetricClouds {
-                model: CloudModel::Bauer,
-                ..default()
-            },
+            VolumetricClouds::default(),
             CloudReconstruction::default(),
             SkyProbe::default(),
             // The froxel volume and the cloud composite both read it.
