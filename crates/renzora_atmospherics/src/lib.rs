@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    BauerFieldPlugin, CelestialPlugin, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays,
+    CelestialPlugin, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays,
     Location, Rainbow, SkyElements, SunClock, Weather, WeatherParticles,
 };
 
@@ -25,7 +25,6 @@ impl Plugin for AtmosphericsPlugin {
         app.insert_resource(textures::Textures(pipeline.texture_assets().into()))
             .add_plugins((
                 pipeline,
-                BauerFieldPlugin,
                 // The scene file authors the celestial bundle on the weatherscape root, so the plugin
                 // takes no second one of its own.
                 CelestialPlugin {
