@@ -1,6 +1,10 @@
 <!-- r1-alpha7 -->
 
 ## Unreleased
+- feat(atmospherics): the weatherscape root owns the camera's exposure through its
+  `NightGrade`; the sun clock holds still while editing and runs under play; the
+  inspector draws every authored component from reflection with each field's
+  declared range, plus a civil-time Sun Clock card
 - fix(atmospherics): deleting the weatherscape root, or switching scene, takes the
   cloud, reconstruction and sky-probe components off the viewport camera with it
 - refactor(atmospherics): remove legacy renderer and probe-bisect environment switches

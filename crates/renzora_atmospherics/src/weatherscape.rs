@@ -4,8 +4,8 @@
 
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    celestial_bundle, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location,
-    Rainbow, SkyElements, SunClock, Weather, WeatherParticles,
+    CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location, NightGrade, Rainbow,
+    SkyElements, SunClock, Weather, WeatherParticles, celestial_bundle,
 };
 
 use crate::package::BauerPackage;
@@ -38,6 +38,7 @@ pub fn weatherscape_bundle(id: u64, package: BauerPackage) -> impl Bundle {
         WeatherParticles::default(),
         Weather::default(),
         SkyElements::default(),
+        NightGrade::default(),
         celestial_bundle(
             Location::default(),
             SunClock::default(),

@@ -3,11 +3,11 @@
 
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location, Rainbow, SkyElements,
-    SunClock, Weather, WeatherParticles,
+    CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location, NightGrade, Rainbow,
+    SkyElements, SunClock, Weather, WeatherParticles,
 };
 use renzora_atmospherics::{
-    register_authored_types, weatherscape_bundle, BauerPackage, Weatherscape,
+    BauerPackage, Weatherscape, register_authored_types, weatherscape_bundle,
 };
 use renzora_engine::scene_io::{load_scene_from_string, serialize_scene_to_string};
 
@@ -65,6 +65,7 @@ fn the_authored_root_survives_a_save_and_reopen() {
         &Location,
         &SunClock,
         &CelestialSettings,
+        &NightGrade,
     )>();
     let (scape, package, transform, weather, ..) =
         roots.single(world).expect("one weatherscape root");

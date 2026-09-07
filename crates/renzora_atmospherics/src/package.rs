@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use bevy_atmospherics::bauer::{load, Event, FieldRuntime, U64Hex};
 use bevy_atmospherics::BauerField;
+use bevy_atmospherics::bauer::{Event, FieldRuntime, U64Hex, load};
 
 /// A package is a path plus its digest, never a `Handle`: a handle fails the host's reflected RON
 /// round trip and is dropped with no diagnostic (bevy_atmospherics

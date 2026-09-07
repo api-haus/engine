@@ -1,10 +1,11 @@
 //! The per-camera half of the pipeline follows the weatherscape root: on the routed camera while
 //! the root lives, off it once the root goes.
 
+use bevy::post_process::auto_exposure::AutoExposure;
 use bevy::prelude::*;
 use bevy_atmospherics::{CloudReconstruction, SkyProbe, VolumetricClouds};
 use renzora::core::{EffectRouting, PrimaryViewportCamera, ViewportCamera};
-use renzora_atmospherics::{cameras, weatherscape_bundle, BauerPackage};
+use renzora_atmospherics::{BauerPackage, cameras, weatherscape_bundle};
 
 fn app() -> App {
     let mut app = App::new();
@@ -26,7 +27,11 @@ fn the_pipeline_leaves_the_camera_with_the_root() {
     let mut app = app();
     let primary = app
         .world_mut()
-        .spawn((Camera3d::default(), PrimaryViewportCamera, ViewportCamera(0)))
+        .spawn((
+            Camera3d::default(),
+            PrimaryViewportCamera,
+            ViewportCamera(0),
+        ))
         .id();
     let secondary = app
         .world_mut()
@@ -45,6 +50,10 @@ fn the_pipeline_leaves_the_camera_with_the_root() {
         "a secondary editor viewport takes no atmosphere"
     );
 
+    // The exposure half lands from its own system; the root's despawn takes it too.
+    app.world_mut()
+        .entity_mut(primary)
+        .insert(AutoExposure::default());
     app.world_mut().entity_mut(root).despawn();
     app.world_mut().resource_mut::<EffectRouting>().routes = vec![];
     app.update();
@@ -52,4 +61,5 @@ fn the_pipeline_leaves_the_camera_with_the_root() {
     assert!(!camera.contains::<VolumetricClouds>());
     assert!(!camera.contains::<CloudReconstruction>());
     assert!(!camera.contains::<SkyProbe>());
+    assert!(!camera.contains::<AutoExposure>());
 }

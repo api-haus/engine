@@ -1,19 +1,22 @@
 //! Runtime half of the atmospherics host adapter: the rendering pipeline, the authored root it
 //! reads, and the cameras it installs on.
 
+use bevy::post_process::auto_exposure::AutoExposurePlugin;
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    CelestialPlugin, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays,
-    Location, Rainbow, SkyElements, SunClock, Weather, WeatherParticles,
+    CelestialPlugin, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location,
+    NightGrade, Rainbow, SkyElements, SunClock, Weather, WeatherParticles,
 };
 
 pub mod cameras;
+mod clock;
+mod exposure;
 pub mod package;
 pub mod textures;
 pub mod weatherscape;
 
 pub use package::BauerPackage;
-pub use weatherscape::{weatherscape_bundle, Weatherscape};
+pub use weatherscape::{Weatherscape, weatherscape_bundle};
 
 #[derive(Default)]
 pub struct AtmosphericsPlugin;
@@ -35,8 +38,18 @@ impl Plugin for AtmosphericsPlugin {
             .init_resource::<package::Accepted>()
             .add_systems(
                 Update,
-                (package::publish, cameras::sync, textures::reload),
+                (
+                    package::publish,
+                    cameras::sync,
+                    exposure::sync.after(cameras::sync),
+                    clock::hold,
+                    textures::reload,
+                ),
             );
+        // The host adds no auto-exposure of its own; the grade's histogram needs the pass.
+        if !app.is_plugin_added::<AutoExposurePlugin>() {
+            app.add_plugins(AutoExposurePlugin);
+        }
         register_authored_types(app);
     }
 }
@@ -58,7 +71,8 @@ pub fn register_authored_types(app: &mut App) {
         .register_type::<SkyElements>()
         .register_type::<CelestialSettings>()
         .register_type::<Location>()
-        .register_type::<SunClock>();
+        .register_type::<SunClock>()
+        .register_type::<NightGrade>();
 }
 
 renzora::add!(AtmosphericsPlugin);

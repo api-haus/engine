@@ -1,6 +1,7 @@
 //! Which cameras receive the pipeline, and what it puts on them.
 
 use bevy::core_pipeline::prepass::DepthPrepass;
+use bevy::post_process::auto_exposure::AutoExposure;
 use bevy::prelude::*;
 use bevy_atmospherics::{CloudReconstruction, SkyProbe, VolumetricClouds};
 use renzora::core::{EffectRouting, PrimaryViewportCamera, ViewportCamera};
@@ -48,9 +49,12 @@ pub fn sync(
         .unwrap_or_default();
     for camera in &installed {
         if !wanted.contains(&camera) {
-            commands
-                .entity(camera)
-                .remove::<(VolumetricClouds, CloudReconstruction, SkyProbe)>();
+            commands.entity(camera).remove::<(
+                VolumetricClouds,
+                CloudReconstruction,
+                SkyProbe,
+                AutoExposure,
+            )>();
         }
     }
     for target in wanted {
