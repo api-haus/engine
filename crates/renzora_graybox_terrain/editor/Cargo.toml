@@ -1,0 +1,13 @@
+[package]
+name = "renzora_graybox_terrain_editor"
+version = "0.1.0"
+edition = "2021"
+description = "Editor-only half of renzora_graybox_terrain: the terrain root in Add Entity. Registered via renzora::add!(.., Editor) and linked only by the editor bundle."
+
+[dependencies]
+bevy = { workspace = true }
+renzora = { path = "../../renzora", default-features = false, features = ["editor"] }
+renzora_graybox_terrain = { path = ".." }
+
+[lints]
+workspace = true

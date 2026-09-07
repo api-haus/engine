@@ -9,10 +9,11 @@ use bevy_atmospherics::{
 
 pub mod cameras;
 pub mod package;
+pub mod textures;
 pub mod weatherscape;
 
 pub use package::BauerPackage;
-pub use weatherscape::{Weatherscape, weatherscape_bundle};
+pub use weatherscape::{weatherscape_bundle, Weatherscape};
 
 #[derive(Default)]
 pub struct AtmosphericsPlugin;
@@ -20,18 +21,23 @@ pub struct AtmosphericsPlugin;
 impl Plugin for AtmosphericsPlugin {
     fn build(&self, app: &mut App) {
         info!("[runtime] AtmosphericsPlugin");
-        app.add_plugins((
-            bevy_atmospherics::AtmosphericsPlugin::default(),
-            BauerFieldPlugin,
-            // The scene file authors the celestial bundle on the weatherscape root, so the plugin
-            // takes no second one of its own.
-            CelestialPlugin {
-                spawn: false,
-                ..default()
-            },
-        ))
-        .init_resource::<package::Accepted>()
-        .add_systems(Update, (package::publish, cameras::install));
+        let pipeline = bevy_atmospherics::AtmosphericsPlugin::default();
+        app.insert_resource(textures::Textures(pipeline.texture_assets().into()))
+            .add_plugins((
+                pipeline,
+                BauerFieldPlugin,
+                // The scene file authors the celestial bundle on the weatherscape root, so the plugin
+                // takes no second one of its own.
+                CelestialPlugin {
+                    spawn: false,
+                    ..default()
+                },
+            ))
+            .init_resource::<package::Accepted>()
+            .add_systems(
+                Update,
+                (package::publish, cameras::install, textures::reload),
+            );
         register_authored_types(app);
     }
 }

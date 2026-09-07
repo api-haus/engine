@@ -6,7 +6,9 @@ use bevy_atmospherics::{
     CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location, Rainbow, SkyElements,
     SunClock, Weather, WeatherParticles,
 };
-use renzora_atmospherics::{BauerPackage, Weatherscape, register_authored_types, weatherscape_bundle};
+use renzora_atmospherics::{
+    register_authored_types, weatherscape_bundle, BauerPackage, Weatherscape,
+};
 use renzora_engine::scene_io::{load_scene_from_string, serialize_scene_to_string};
 
 fn app() -> App {

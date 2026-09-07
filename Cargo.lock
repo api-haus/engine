@@ -7582,6 +7582,7 @@ dependencies = [
  "renzora_foliage_editor",
  "renzora_forward_decal_editor",
  "renzora_gizmo",
+ "renzora_graybox_terrain_editor",
  "renzora_grid",
  "renzora_hanabi",
  "renzora_hierarchy",
@@ -7868,6 +7869,17 @@ dependencies = [
  "bevy",
  "bevy_atmospherics_harness",
  "renzora",
+ "renzora_atmospherics",
+ "renzora_engine",
+]
+
+[[package]]
+name = "renzora_graybox_terrain_editor"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "renzora",
+ "renzora_graybox_terrain",
 ]
 
 [[package]]

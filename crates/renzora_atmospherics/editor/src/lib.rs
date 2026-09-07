@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use bevy_atmospherics::Weather;
 use renzora::{AppEditorExt, EntityPreset, FieldDef, FieldType, FieldValue, InspectorEntry};
-use renzora_atmospherics::{BauerPackage, Weatherscape, weatherscape_bundle};
+use renzora_atmospherics::{weatherscape_bundle, BauerPackage, Weatherscape};
 
 #[derive(Default)]
 pub struct AtmosphericsEditorPlugin;

@@ -4,8 +4,8 @@
 
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location, Rainbow, SkyElements,
-    SunClock, Weather, WeatherParticles, celestial_bundle,
+    celestial_bundle, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location,
+    Rainbow, SkyElements, SunClock, Weather, WeatherParticles,
 };
 
 use crate::package::BauerPackage;

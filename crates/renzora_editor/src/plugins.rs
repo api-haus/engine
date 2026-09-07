@@ -39,6 +39,7 @@ pub(crate) fn add_editor_plugins(app: &mut App) {
     app.add_plugins(renzora_foliage_editor::FoliageEditorPlugin::default());
     app.add_plugins(renzora_forward_decal_editor::DecalEditorPlugin::default());
     app.add_plugins(renzora_gizmo::GizmoPlugin::default());
+    app.add_plugins(renzora_graybox_terrain_editor::GrayboxTerrainEditorPlugin::default());
     app.add_plugins(renzora_grid::GridPlugin::default());
     app.add_plugins(renzora_hierarchy::HierarchyPanelPlugin::default());
     app.add_plugins(renzora_history::HistoryPanelPlugin::default());

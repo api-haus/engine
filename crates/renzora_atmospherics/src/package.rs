@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use bevy::prelude::*;
+use bevy_atmospherics::bauer::{load, Event, FieldRuntime, U64Hex};
 use bevy_atmospherics::BauerField;
-use bevy_atmospherics::bauer::{Event, FieldRuntime, U64Hex, load};
 
 /// A package is a path plus its digest, never a `Handle`: a handle fails the host's reflected RON
 /// round trip and is dropped with no diagnostic (bevy_atmospherics
@@ -12,7 +12,8 @@ use bevy_atmospherics::bauer::{Event, FieldRuntime, U64Hex, load};
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct BauerPackage {
-    /// Asset-relative, resolved against the project's `assets/` directory.
+    /// Project-relative: the host's asset root is the project directory itself, with no `assets/`
+    /// level under it.
     pub path: String,
     /// Local civil hour the field is accepted at.
     pub hour: f64,
@@ -50,7 +51,7 @@ pub(crate) fn publish(
         return;
     };
     let root = match project {
-        Some(project) => project.path.join("assets").join(&authored.path),
+        Some(project) => project.path.join(&authored.path),
         None => std::path::PathBuf::from(&authored.path),
     };
     let package = match load(&root) {

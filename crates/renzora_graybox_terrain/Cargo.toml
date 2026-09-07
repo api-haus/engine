@@ -2,13 +2,17 @@
 name = "renzora_graybox_terrain"
 version = "0.1.0"
 edition = "2021"
-description = "Host adapter for the Wellington graybox demo terrain that bevy_atmospherics_harness renders under its flythrough."
+description = "Host adapter for the Wellington graybox demo terrain that bevy_atmospherics_harness renders under its flythrough. Editor tooling lives in the nested renzora_graybox_terrain_editor crate."
 
 [dependencies]
 bevy = { workspace = true }
 renzora = { path = "../renzora", default-features = false }
+renzora_atmospherics = { path = "../renzora_atmospherics" }
 # Same escape as renzora_atmospherics: the harness is a sibling of this submodule's parent.
 bevy_atmospherics_harness = { path = "../../../crates/bevy_atmospherics_harness" }
+
+[dev-dependencies]
+renzora_engine = { path = "../renzora_engine" }
 
 [lints]
 workspace = true
