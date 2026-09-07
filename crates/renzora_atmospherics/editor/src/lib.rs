@@ -117,42 +117,19 @@ fn package_entry() -> InspectorEntry {
         }),
         is_enabled_fn: None,
         set_enabled_fn: None,
-        fields: vec![
-            FieldDef {
-                name: "Package",
-                field_type: FieldType::String,
-                get_fn: |w, e| {
-                    w.get::<BauerPackage>(e)
-                        .map(|p| FieldValue::String(p.path.clone()))
-                },
-                set_fn: |w, e, v| {
-                    if let (FieldValue::String(path), Some(mut p)) =
-                        (v, w.get_mut::<BauerPackage>(e))
-                    {
-                        p.path = path;
-                    }
-                },
+        fields: vec![FieldDef {
+            name: "Package",
+            field_type: FieldType::String,
+            get_fn: |w, e| {
+                w.get::<BauerPackage>(e)
+                    .map(|p| FieldValue::String(p.path.clone()))
             },
-            FieldDef {
-                name: "Hour",
-                field_type: FieldType::Float {
-                    speed: 0.05,
-                    min: 0.0,
-                    max: 24.0,
-                },
-                get_fn: |w, e| {
-                    w.get::<BauerPackage>(e)
-                        .map(|p| FieldValue::Float(p.hour as f32))
-                },
-                set_fn: |w, e, v| {
-                    if let (FieldValue::Float(hour), Some(mut p)) =
-                        (v, w.get_mut::<BauerPackage>(e))
-                    {
-                        p.hour = hour as f64;
-                    }
-                },
+            set_fn: |w, e, v| {
+                if let (FieldValue::String(path), Some(mut p)) = (v, w.get_mut::<BauerPackage>(e)) {
+                    p.path = path;
+                }
             },
-        ],
+        }],
     }
 }
 

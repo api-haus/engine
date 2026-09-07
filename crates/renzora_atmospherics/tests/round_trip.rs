@@ -31,14 +31,17 @@ fn the_authored_root_survives_a_save_and_reopen() {
         .spawn(weatherscape_bundle(
             7,
             BauerPackage {
-                path: "bauer/cumulonimbus-candidate".into(),
-                hour: 16.5,
+                path: "bauer/authored-elsewhere".into(),
             },
         ))
         .insert((
             Transform::from_xyz(120.0, 0.0, -340.0),
             Weather {
                 rain: 0.75,
+                ..default()
+            },
+            SunClock {
+                seconds: 16.5 * 3600.0,
                 ..default()
             },
         ));
@@ -67,12 +70,12 @@ fn the_authored_root_survives_a_save_and_reopen() {
         &CelestialSettings,
         &NightGrade,
     )>();
-    let (scape, package, transform, weather, ..) =
+    let (scape, package, transform, weather, _, _, _, _, _, _, _, _, clock, ..) =
         roots.single(world).expect("one weatherscape root");
 
     assert_eq!(scape.id, 7);
-    assert_eq!(package.path, "bauer/cumulonimbus-candidate");
-    assert_eq!(package.hour, 16.5);
+    assert_eq!(package.path, "bauer/authored-elsewhere");
     assert_eq!(transform.translation, Vec3::new(120.0, 0.0, -340.0));
     assert_eq!(weather.rain, 0.75);
+    assert_eq!(clock.seconds, 16.5 * 3600.0);
 }

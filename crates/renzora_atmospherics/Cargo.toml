@@ -8,6 +8,7 @@ description = "Runtime host adapter for bevy_atmospherics. Editor tooling lives 
 bevy = { workspace = true }
 renzora = { path = "../renzora", default-features = false }
 renzora_engine = { path = "../renzora_engine" }
+renzora_atmosphere = { path = "../renzora_atmosphere" }
 # This engine tree is a submodule of the bevy_atmospherics checkout, and the rendering crate is
 # reached by leaving the workspace: crates/renzora_atmospherics -> ../../../crates.
 bevy_atmospherics = { path = "../../../crates/bevy_atmospherics" }

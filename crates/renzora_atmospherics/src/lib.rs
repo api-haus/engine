@@ -39,6 +39,7 @@ impl Plugin for AtmosphericsPlugin {
             .add_systems(
                 Update,
                 (
+                    weatherscape::complete,
                     package::publish,
                     cameras::sync,
                     exposure::sync.after(cameras::sync),

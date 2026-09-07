@@ -5,6 +5,9 @@
   `NightGrade`; the sun clock holds still while editing and runs under play; the
   inspector draws every authored component from reflection with each field's
   declared range, plus a civil-time Sun Clock card
+- feat(atmospherics): the weatherscape root carries the host's atmosphere source, so a
+  scene without a World Environment still has a sky; the Bauer field's hour is the
+  sun clock's, not a second authored hour
 - fix(atmospherics): deleting the weatherscape root, or switching scene, takes the
   cloud, reconstruction and sky-probe components off the viewport camera with it
 - refactor(atmospherics): remove legacy renderer and probe-bisect environment switches

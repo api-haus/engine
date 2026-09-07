@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use bevy_atmospherics::BauerField;
-use bevy_atmospherics::bauer::{Event, FieldRuntime, U64Hex, load};
+use bevy_atmospherics::bauer::{Event, FieldRuntime, Package, U64Hex, load};
+use bevy_atmospherics::{BauerField, SunClock};
 
 /// A package is a path plus its digest, never a `Handle`: a handle fails the host's reflected RON
 /// round trip and is dropped with no diagnostic (bevy_atmospherics
@@ -15,59 +15,77 @@ pub struct BauerPackage {
     /// Project-relative: the host's asset root is the project directory itself, with no `assets/`
     /// level under it.
     pub path: String,
-    /// Local civil hour the field is accepted at.
-    pub hour: f64,
 }
 
 impl Default for BauerPackage {
     fn default() -> Self {
         Self {
             path: "bauer/cumulonimbus-candidate".into(),
-            hour: 10.0,
         }
     }
 }
 
-/// What the last accepted publication was built from, so a root whose package did not change is
-/// not reloaded and re-uploaded every frame.
-#[derive(Resource, Default)]
-pub(crate) struct Accepted(Option<BauerPackage>);
+/// The field's tracks are keyed by civil hour, and the hour is the sun clock's: one clock for the
+/// sky and the weather map. Quantised so a running clock re-accepts the field a few times an hour,
+/// not every frame.
+const HOUR_STEP: f64 = 0.1;
 
-/// Loads the authored package and publishes it. A package that fails to load leaves the host
-/// running with the field unavailable and the failure reported, never a stopped startup.
+/// What the last accepted publication was built from, so a root whose package and hour did not
+/// change is not re-accepted and re-uploaded every frame.
+#[derive(Resource, Default)]
+pub(crate) struct Accepted {
+    authored: Option<BauerPackage>,
+    hour_steps: i64,
+    package: Option<Arc<Package>>,
+}
+
+/// Loads the authored package and publishes it at the clock's hour. A package that fails to load
+/// leaves the host running with the field unavailable and the failure reported, never a stopped
+/// startup.
 pub(crate) fn publish(
     mut commands: Commands,
     mut accepted: ResMut<Accepted>,
-    roots: Query<&BauerPackage, With<crate::Weatherscape>>,
+    roots: Query<(&BauerPackage, Option<&SunClock>), With<crate::Weatherscape>>,
     project: Option<Res<renzora::CurrentProject>>,
 ) {
-    let authored = roots.iter().next().cloned();
-    if authored == accepted.0 {
+    let Some((authored, clock)) = roots.iter().next() else {
+        if accepted.authored.take().is_some() {
+            accepted.package = None;
+            commands.insert_resource(BauerField::default());
+        }
+        return;
+    };
+    let hour = clock.map_or(10.0, |clock| clock.seconds / 3600.0);
+    let hour_steps = (hour / HOUR_STEP).floor() as i64;
+    let same_package = accepted.authored.as_ref() == Some(authored);
+    if same_package && accepted.hour_steps == hour_steps {
         return;
     }
-    accepted.0 = authored.clone();
-    let Some(authored) = authored else {
+    if !same_package {
+        accepted.authored = Some(authored.clone());
+        let root = match project {
+            Some(project) => project.path.join(&authored.path),
+            None => std::path::PathBuf::from(&authored.path),
+        };
+        accepted.package = match load(&root) {
+            Ok(package) => Some(Arc::new(package)),
+            Err(e) => {
+                error!("bauer package {}: {e}", root.display());
+                None
+            }
+        };
+    }
+    accepted.hour_steps = hour_steps;
+    let Some(package) = accepted.package.clone() else {
         commands.insert_resource(BauerField::default());
         return;
-    };
-    let root = match project {
-        Some(project) => project.path.join(&authored.path),
-        None => std::path::PathBuf::from(&authored.path),
-    };
-    let package = match load(&root) {
-        Ok(package) => Arc::new(package),
-        Err(e) => {
-            error!("bauer package {}: {e}", root.display());
-            commands.insert_resource(BauerField::default());
-            return;
-        }
     };
     let mut runtime = FieldRuntime::new();
     runtime.submit(Event::Load {
         request_id: U64Hex(1),
         manifest: "manifest.json".into(),
         sha256: package.manifest_sha256,
-        hour: authored.hour,
+        hour: hour_steps as f64 * HOUR_STEP,
     });
     runtime.produced(U64Hex(1), Some(package.clone()));
     commands.insert_resource(BauerField {
