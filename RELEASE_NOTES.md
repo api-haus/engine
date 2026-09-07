@@ -1,6 +1,8 @@
 <!-- r1-alpha7 -->
 
 ## Unreleased
+- fix(atmospherics): deleting the weatherscape root, or switching scene, takes the
+  cloud, reconstruction and sky-probe components off the viewport camera with it
 - refactor(atmospherics): remove legacy renderer and probe-bisect environment switches
 - feat(atmospherics): scaffold `renzora_atmospherics` (runtime), its nested
   `renzora_atmospherics_editor`, and `renzora_graybox_terrain` as the host

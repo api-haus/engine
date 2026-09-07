@@ -29,18 +29,31 @@ pub fn targets<'a>(
         })
 }
 
-/// Installs the per-camera half of the pipeline on every camera routed to the weatherscape root.
-pub(crate) fn install(
+/// Keeps the per-camera half of the pipeline on exactly the cameras routed to a weatherscape root.
+/// The root going, by a delete or the host's scene sweep, takes the pipeline off every camera it
+/// was on: the adapter owns the whole bundle and resets what it installed when the root goes
+/// (bevy_atmospherics `docs/spec/55-renzora-render-ownership.md`, "Scene switching, play, and
+/// teardown").
+pub fn sync(
     mut commands: Commands,
     routing: Res<EffectRouting>,
     roots: Query<Entity, With<Weatherscape>>,
     cameras: Targets,
-    installed: Query<(), With<CloudReconstruction>>,
+    installed: Query<Entity, With<CloudReconstruction>>,
 ) {
-    let Some(root) = roots.iter().next() else {
-        return;
-    };
-    for target in targets(&routing, root, &cameras) {
+    let wanted: Vec<Entity> = roots
+        .iter()
+        .next()
+        .map(|root| targets(&routing, root, &cameras).collect())
+        .unwrap_or_default();
+    for camera in &installed {
+        if !wanted.contains(&camera) {
+            commands
+                .entity(camera)
+                .remove::<(VolumetricClouds, CloudReconstruction, SkyProbe)>();
+        }
+    }
+    for target in wanted {
         if installed.contains(target) {
             continue;
         }

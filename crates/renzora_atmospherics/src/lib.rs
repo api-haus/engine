@@ -35,7 +35,7 @@ impl Plugin for AtmosphericsPlugin {
             .init_resource::<package::Accepted>()
             .add_systems(
                 Update,
-                (package::publish, cameras::install, textures::reload),
+                (package::publish, cameras::sync, textures::reload),
             );
         register_authored_types(app);
     }
