@@ -16,9 +16,22 @@ use crate::package::BauerPackage;
 /// scene file from an earlier bundle still carries the whole surface once it loads.
 pub(crate) fn complete(
     mut commands: Commands,
-    roots: Query<(Entity, Has<NightGrade>, Has<AtmosphereComponentSettings>), With<Weatherscape>>,
+    roots: Query<
+        (
+            Entity,
+            Has<BauerPackage>,
+            Has<NightGrade>,
+            Has<AtmosphereComponentSettings>,
+        ),
+        With<Weatherscape>,
+    >,
 ) {
-    for (root, grade, atmosphere) in &roots {
+    for (root, package, grade, atmosphere) in &roots {
+        // A file written when the package carried an hour of its own no longer decodes, and the
+        // host drops the record with one warning.
+        if !package {
+            commands.entity(root).insert(BauerPackage::default());
+        }
         if !grade {
             commands.entity(root).insert(NightGrade::default());
         }
