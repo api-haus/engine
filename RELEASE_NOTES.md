@@ -1,6 +1,7 @@
 <!-- r1-alpha7 -->
 
 ## Unreleased
+- refactor(atmospherics): remove legacy renderer and probe-bisect environment switches
 - feat(atmospherics): scaffold `renzora_atmospherics` (runtime), its nested
   `renzora_atmospherics_editor`, and `renzora_graybox_terrain` as the host
   adapters for bevy_atmospherics. Husks only: nothing renders yet.

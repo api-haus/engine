@@ -3,7 +3,7 @@
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::prelude::*;
 use bevy_atmospherics::bauer::CloudModel;
-use bevy_atmospherics::{CloudReconstruction, SkyProbe, SkyProbeAblation, VolumetricClouds};
+use bevy_atmospherics::{CloudReconstruction, SkyProbe, VolumetricClouds};
 use renzora::core::{EffectRouting, PrimaryViewportCamera, ViewportCamera};
 
 use crate::Weatherscape;
@@ -41,16 +41,6 @@ pub(crate) fn install(
     let Some(root) = roots.iter().next() else {
         return;
     };
-    // Open on 2026-09-07: with the probe on the camera, despawning the weatherscape root hangs
-    // the GPU (`NVRM: Xid 109 CTX SWITCH TIMEOUT`). `ATMOS_NO_PROBE=1` leaves it off;
-    // `ATMOS_PROBE_ABLATE=cloud|sky|fog` skips one of its inputs for the bisect.
-    let env = |name: &str| std::env::var(name).unwrap_or_default();
-    let probe = env("ATMOS_NO_PROBE") != "1";
-    let ablate = env("ATMOS_PROBE_ABLATE");
-    commands.insert_resource(SkyProbeAblation {
-        cloud_pass: ablate != "cloud",
-        sky_pass: ablate != "sky",
-    });
     for target in targets(&routing, root, &cameras) {
         if installed.contains(target) {
             continue;
@@ -59,24 +49,15 @@ pub(crate) fn install(
             // The host renders Bauer only (bevy_atmospherics `docs/spec/54-graybox-terrain.md`,
             // "Running the scene"); the camera's default is the legacy noise model.
             VolumetricClouds {
-                model: if env("ATMOS_LEGACY") == "1" {
-                    CloudModel::Legacy
-                } else {
-                    CloudModel::Bauer
-                },
+                model: CloudModel::Bauer,
                 ..default()
             },
             CloudReconstruction::default(),
+            SkyProbe::default(),
             // The froxel volume and the cloud composite both read it.
             DepthPrepass,
             // A multisampled depth view does not bind to the trace's non-multisampled binding.
             Msaa::Off,
         ));
-        if probe {
-            commands.entity(target).insert(SkyProbe {
-                include_fog: ablate != "fog",
-                ..default()
-            });
-        }
     }
 }
