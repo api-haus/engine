@@ -8,6 +8,11 @@
 - feat(atmospherics): the weatherscape root carries the host's atmosphere source, so a
   scene without a World Environment still has a sky; the Bauer field's hour is the
   sun clock's, not a second authored hour
+- fix(atmospherics): the sun clock moves the sun again on a reloaded scene: the sun's
+  marker now survives the save, and a root loaded without it gets it back
+- feat(atmospherics): the root authors the cloud view and reconstruction and copies them to
+  its cameras; Location, Cloud Quality and Sun Clock cards, with city presets, quality
+  tier, reconstruction preset and sun readouts
 - fix(atmospherics): deleting the weatherscape root, or switching scene, takes the
   cloud, reconstruction and sky-probe components off the viewport camera with it
 - refactor(atmospherics): remove legacy renderer and probe-bisect environment switches

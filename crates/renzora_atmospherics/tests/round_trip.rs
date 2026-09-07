@@ -3,8 +3,9 @@
 
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location, NightGrade, Rainbow,
-    SkyElements, SunClock, Weather, WeatherParticles,
+    CelestialSettings, CloudLayer, CloudReconstruction, CloudShadows, Fog, LightRays, Location,
+    MoonLight, NightGrade, Rainbow, SkyElements, SunClock, SunLight, VolumetricClouds, Weather,
+    WeatherParticles,
 };
 use renzora_atmospherics::{
     BauerPackage, Weatherscape, register_authored_types, weatherscape_bundle,
@@ -54,23 +55,23 @@ fn the_authored_root_survives_a_save_and_reopen() {
 
     let world = after.world_mut();
     let mut roots = world.query::<(
-        &Weatherscape,
-        &BauerPackage,
-        &Transform,
-        &Weather,
-        &CloudLayer,
-        &CloudShadows,
-        &Fog,
-        &LightRays,
-        &Rainbow,
-        &WeatherParticles,
-        &SkyElements,
-        &Location,
-        &SunClock,
-        &CelestialSettings,
-        &NightGrade,
+        (&Weatherscape, &BauerPackage, &Transform, &Weather, &SunClock),
+        (
+            &CloudLayer,
+            &CloudShadows,
+            &Fog,
+            &LightRays,
+            &Rainbow,
+            &WeatherParticles,
+            &SkyElements,
+            &Location,
+            &CelestialSettings,
+            &NightGrade,
+            &VolumetricClouds,
+            &CloudReconstruction,
+        ),
     )>();
-    let (scape, package, transform, weather, _, _, _, _, _, _, _, _, clock, ..) =
+    let ((scape, package, transform, weather, clock), _) =
         roots.single(world).expect("one weatherscape root");
 
     assert_eq!(scape.id, 7);
@@ -78,4 +79,9 @@ fn the_authored_root_survives_a_save_and_reopen() {
     assert_eq!(transform.translation, Vec3::new(120.0, 0.0, -340.0));
     assert_eq!(weather.rain, 0.75);
     assert_eq!(clock.seconds, 16.5 * 3600.0);
+
+    // The two lights keep the markers the celestial drive selects them by.
+    let world = after.world_mut();
+    assert_eq!(world.query::<&SunLight>().iter(world).count(), 1);
+    assert_eq!(world.query::<&MoonLight>().iter(world).count(), 1);
 }

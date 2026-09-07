@@ -50,6 +50,18 @@ fn the_pipeline_leaves_the_camera_with_the_root() {
         "a secondary editor viewport takes no atmosphere"
     );
 
+    // The root authors the view; the camera carries a copy that follows it.
+    app.world_mut()
+        .entity_mut(root)
+        .get_mut::<VolumetricClouds>()
+        .unwrap()
+        .max_steps = 96;
+    app.update();
+    assert_eq!(
+        app.world().entity(primary).get::<VolumetricClouds>().unwrap().max_steps,
+        96
+    );
+
     // The exposure half lands from its own system; the root's despawn takes it too.
     app.world_mut()
         .entity_mut(primary)

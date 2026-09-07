@@ -4,8 +4,9 @@
 use bevy::post_process::auto_exposure::AutoExposurePlugin;
 use bevy::prelude::*;
 use bevy_atmospherics::{
-    CelestialPlugin, CelestialSettings, CloudLayer, CloudShadows, Fog, LightRays, Location,
-    NightGrade, Rainbow, SkyElements, SunClock, Weather, WeatherParticles,
+    CelestialPlugin, CelestialSettings, CloudLayer, CloudReconstruction, CloudShadows, Fog,
+    LightRays, Location, MoonLight, NightGrade, Rainbow, SkyElements, SunClock, SunLight,
+    VolumetricClouds, Weather, WeatherParticles,
 };
 
 pub mod cameras;
@@ -73,6 +74,10 @@ pub fn register_authored_types(app: &mut App) {
         .register_type::<CelestialSettings>()
         .register_type::<Location>()
         .register_type::<SunClock>()
+        .register_type::<SunLight>()
+        .register_type::<MoonLight>()
+        .register_type::<VolumetricClouds>()
+        .register_type::<CloudReconstruction>()
         .register_type::<NightGrade>();
 }
 

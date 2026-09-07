@@ -30,6 +30,18 @@ pub fn targets<'a>(
         })
 }
 
+/// The root and what it authors for the cameras.
+type Roots<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        Option<Ref<'static, VolumetricClouds>>,
+        Option<Mut<'static, CloudReconstruction>>,
+    ),
+    With<Weatherscape>,
+>;
+
 /// Keeps the per-camera half of the pipeline on exactly the cameras routed to a weatherscape root.
 /// The root going, by a delete or the host's scene sweep, takes the pipeline off every camera it
 /// was on: the adapter owns the whole bundle and resets what it installed when the root goes
@@ -38,15 +50,23 @@ pub fn targets<'a>(
 pub fn sync(
     mut commands: Commands,
     routing: Res<EffectRouting>,
-    roots: Query<Entity, With<Weatherscape>>,
+    mut roots: Roots,
     cameras: Targets,
-    installed: Query<Entity, With<CloudReconstruction>>,
+    // The root carries the authored copy of the same components; only a camera is an install.
+    installed: Query<Entity, (With<CloudReconstruction>, With<Camera3d>)>,
 ) {
-    let wanted: Vec<Entity> = roots
-        .iter()
-        .next()
-        .map(|root| targets(&routing, root, &cameras).collect())
-        .unwrap_or_default();
+    let Some((root, view, mut reconstruction)) = roots.iter_mut().next() else {
+        for camera in &installed {
+            commands.entity(camera).remove::<(
+                VolumetricClouds,
+                CloudReconstruction,
+                SkyProbe,
+                AutoExposure,
+            )>();
+        }
+        return;
+    };
+    let wanted: Vec<Entity> = targets(&routing, root, &cameras).collect();
     for camera in &installed {
         if !wanted.contains(&camera) {
             commands.entity(camera).remove::<(
@@ -57,18 +77,35 @@ pub fn sync(
             )>();
         }
     }
+    // The reset flag is handed to the cameras once and lowered on the root, so the file never
+    // carries a raised one.
+    let view_moved = view.as_ref().is_some_and(|view| view.is_changed());
+    let reconstruction_moved = reconstruction
+        .as_ref()
+        .is_some_and(|reconstruction| reconstruction.is_changed());
+    let authored_view = view.as_deref().copied().unwrap_or_default();
+    let authored_reconstruction = reconstruction.as_deref().copied().unwrap_or_default();
     for target in wanted {
-        if installed.contains(target) {
-            continue;
+        let fresh = !installed.contains(target);
+        if fresh {
+            commands.entity(target).insert((
+                SkyProbe::default(),
+                // The froxel volume and the cloud composite both read it.
+                DepthPrepass,
+                // A multisampled depth view does not bind to the trace's non-multisampled binding.
+                Msaa::Off,
+            ));
         }
-        commands.entity(target).insert((
-            VolumetricClouds::default(),
-            CloudReconstruction::default(),
-            SkyProbe::default(),
-            // The froxel volume and the cloud composite both read it.
-            DepthPrepass,
-            // A multisampled depth view does not bind to the trace's non-multisampled binding.
-            Msaa::Off,
-        ));
+        if fresh || view_moved {
+            commands.entity(target).insert(authored_view);
+        }
+        if fresh || reconstruction_moved {
+            commands.entity(target).insert(authored_reconstruction);
+        }
+    }
+    if let Some(reconstruction) = reconstruction.as_deref_mut() {
+        if reconstruction.reset {
+            reconstruction.reset = false;
+        }
     }
 }

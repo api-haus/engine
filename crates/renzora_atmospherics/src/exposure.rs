@@ -17,7 +17,7 @@ pub(crate) fn sync(
     mut commands: Commands,
     mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
     grades: Query<Ref<NightGrade>, With<Weatherscape>>,
-    cameras: Query<Entity, With<CloudReconstruction>>,
+    cameras: Query<Entity, (With<CloudReconstruction>, With<Camera3d>)>,
     mut seen: Local<Vec<Entity>>,
 ) {
     let Some(grade) = grades.iter().next() else {
