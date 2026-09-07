@@ -227,6 +227,21 @@ fn position(world: &World, entity: Entity) -> Option<bevy_atmospherics::SunPosit
     Some(sun_position(location, clock))
 }
 
+/// What the installed cameras actually march with, so an authored tier that did not reach a camera
+/// is visible as a number and not a guess.
+fn camera_steps(world: &World, _: Entity) -> Option<FieldValue> {
+    let mut cameras = world.try_query_filtered::<&VolumetricClouds, With<Camera3d>>()?;
+    let steps: Vec<String> = cameras
+        .iter(world)
+        .map(|view| view.max_steps.to_string())
+        .collect();
+    Some(FieldValue::ReadOnly(if steps.is_empty() {
+        "no camera installed".to_string()
+    } else {
+        steps.join(", ")
+    }))
+}
+
 fn elevation(world: &World, entity: Entity) -> Option<FieldValue> {
     position(world, entity).map(|p| FieldValue::ReadOnly(format!("{:.1}°", p.corrected_elevation)))
 }
@@ -343,6 +358,7 @@ fn quality_entry() -> InspectorEntry {
                 },
             },
             renzora::bool_field!("Restart History", CloudReconstruction, reset),
+            readout("Camera Steps", camera_steps),
         ],
     }
 }
