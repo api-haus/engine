@@ -14,19 +14,17 @@ use crate::package::BauerPackage;
 
 /// A root authored before a component joined the bundle takes that component's default, so a
 /// scene file from an earlier bundle still carries the whole surface once it loads.
+type Present = (
+    Has<BauerPackage>,
+    Has<NightGrade>,
+    Has<AtmosphereComponentSettings>,
+);
+
 pub(crate) fn complete(
     mut commands: Commands,
-    roots: Query<
-        (
-            Entity,
-            Has<BauerPackage>,
-            Has<NightGrade>,
-            Has<AtmosphereComponentSettings>,
-        ),
-        With<Weatherscape>,
-    >,
+    roots: Query<(Entity, Present), With<Weatherscape>>,
 ) {
-    for (root, package, grade, atmosphere) in &roots {
+    for (root, (package, grade, atmosphere)) in &roots {
         // A file written when the package carried an hour of its own no longer decodes, and the
         // host drops the record with one warning.
         if !package {
